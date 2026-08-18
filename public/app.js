@@ -21,12 +21,12 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const SORT_LABELS = {
-    1: 'Nazadnje dodano',
-    4: 'Leto: najprej novejše',
-    3: 'Najboljša ocena',
-    6: 'Najbolj gledano',
-    5: 'Leto: najprej starejše',
-    2: 'Najprej dodano'
+    1: 'Recently Added',
+    4: 'Year: Newest First',
+    3: 'Highest Rating',
+    6: 'Most Popular',
+    5: 'Year: Oldest First',
+    2: 'Oldest Added'
   };
 
   let globalConfig = null;
@@ -106,12 +106,55 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { toast.style.display = 'none'; }, 3500);
   }
 
-  // Toggle Global Settings
+  const settingsModal = document.getElementById('settings-modal');
+  const closeSettingsBtn = document.getElementById('close-settings-btn');
+  const cancelSettingsBtn = document.getElementById('cancel-settings-btn');
+  const statActiveJobs = document.getElementById('stat-active-jobs');
+  const statSyncStatus = document.getElementById('stat-sync-status');
+  const statJellyfinStatus = document.getElementById('stat-jellyfin-status');
+
+  // Open / Close Global Settings Modal
   toggleSettingsBtn.addEventListener('click', () => {
-    const isHidden = globalSettingsForm.style.display === 'none';
-    globalSettingsForm.style.display = isHidden ? 'block' : 'none';
-    toggleSettingsBtn.textContent = isHidden ? '🙈 Hide Settings' : '👁️ Show / Hide Settings';
+    settingsModal.style.display = 'flex';
   });
+
+  closeSettingsBtn?.addEventListener('click', () => {
+    settingsModal.style.display = 'none';
+  });
+
+  cancelSettingsBtn?.addEventListener('click', () => {
+    settingsModal.style.display = 'none';
+  });
+
+  function updateQuickStats() {
+    if (statActiveJobs && allJobs) {
+      const activeCount = allJobs.filter(j => j.enabled !== false && j.schedule !== 'disabled').length;
+      statActiveJobs.textContent = `${activeCount} / ${allJobs.length}`;
+    }
+
+    if (statSyncStatus) {
+      if (isSyncing) {
+        statSyncStatus.textContent = '⚡ Sinhronizacija teče';
+        statSyncStatus.style.color = '#38bdf8';
+      } else {
+        statSyncStatus.textContent = 'Pripravljen';
+        statSyncStatus.style.color = '#34d399';
+      }
+    }
+
+    if (statJellyfinStatus && globalConfig) {
+      if (globalConfig.jellyfinAutoRefresh && globalConfig.jellyfinUrl) {
+        statJellyfinStatus.textContent = '✅ Povezan & Auto';
+        statJellyfinStatus.style.color = '#34d399';
+      } else if (globalConfig.jellyfinUrl) {
+        statJellyfinStatus.textContent = '🔗 Nastavljen';
+        statJellyfinStatus.style.color = '#93c5fd';
+      } else {
+        statJellyfinStatus.textContent = 'Ni nastavljen';
+        statJellyfinStatus.style.color = '#9ca3af';
+      }
+    }
+  }
 
   // Render Genre Checkboxes in Modal
   function renderGenreCheckboxes(selected = []) {
@@ -140,33 +183,39 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Tabs Switching
-  tabSyncLogs.addEventListener('click', () => {
-    tabSyncLogs.classList.add('active');
-    tabBridgeLogs.classList.remove('active');
-    tabJobHistory.classList.remove('active');
-    logOutput.style.display = 'block';
-    bridgeLogOutput.style.display = 'none';
-    historyContainer.style.display = 'none';
-  });
+  // Modal Popups for Logs & History
+  const syncLogsModal = document.getElementById('sync-logs-modal');
+  const bridgeLogsModal = document.getElementById('bridge-logs-modal');
+  const historyModal = document.getElementById('history-modal');
 
-  tabBridgeLogs.addEventListener('click', () => {
-    tabBridgeLogs.classList.add('active');
-    tabSyncLogs.classList.remove('active');
-    tabJobHistory.classList.remove('active');
-    logOutput.style.display = 'none';
-    bridgeLogOutput.style.display = 'block';
-    historyContainer.style.display = 'none';
-  });
+  const btnOpenSyncLogs = document.getElementById('btn-open-sync-logs');
+  const btnOpenBridgeLogs = document.getElementById('btn-open-bridge-logs');
+  const btnOpenHistory = document.getElementById('btn-open-history');
 
-  tabJobHistory.addEventListener('click', () => {
-    tabJobHistory.classList.add('active');
-    tabSyncLogs.classList.remove('active');
-    tabBridgeLogs.classList.remove('active');
-    logOutput.style.display = 'none';
-    bridgeLogOutput.style.display = 'none';
-    historyContainer.style.display = 'block';
+  const syncLogsCloseBtn = document.getElementById('sync-logs-close-btn');
+  const syncLogsCancelBtn = document.getElementById('sync-logs-cancel-btn');
+  const bridgeLogsCloseBtn = document.getElementById('bridge-logs-close-btn');
+  const bridgeLogsCancelBtn = document.getElementById('bridge-logs-cancel-btn');
+  const historyCloseBtn = document.getElementById('history-close-btn');
+  const historyCancelBtn = document.getElementById('history-cancel-btn');
+
+  btnOpenSyncLogs?.addEventListener('click', () => {
+    syncLogsModal.style.display = 'flex';
+    setTimeout(() => { logOutput.scrollTop = logOutput.scrollHeight; }, 50);
   });
+  syncLogsCloseBtn?.addEventListener('click', () => syncLogsModal.style.display = 'none');
+  syncLogsCancelBtn?.addEventListener('click', () => syncLogsModal.style.display = 'none');
+
+  btnOpenBridgeLogs?.addEventListener('click', () => {
+    bridgeLogsModal.style.display = 'flex';
+    setTimeout(() => { bridgeLogOutput.scrollTop = bridgeLogOutput.scrollHeight; }, 50);
+  });
+  bridgeLogsCloseBtn?.addEventListener('click', () => bridgeLogsModal.style.display = 'none');
+  bridgeLogsCancelBtn?.addEventListener('click', () => bridgeLogsModal.style.display = 'none');
+
+  btnOpenHistory?.addEventListener('click', () => historyModal.style.display = 'flex');
+  historyCloseBtn?.addEventListener('click', () => historyModal.style.display = 'none');
+  historyCancelBtn?.addEventListener('click', () => historyModal.style.display = 'none');
 
   // Load Global Settings & Jobs
   async function loadInitialData() {
@@ -186,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
       allJobs = globalConfig.jobs || [];
       renderJobsList(allJobs);
       loadExplorerRoots();
+      updateQuickStats();
     } catch (err) {
       showToast(`Error loading configuration: ${err.message}`, 'error');
     }
@@ -284,6 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         showToast('Job started successfully!', 'success');
+        syncLogsModal.style.display = 'flex';
       } else {
         showToast(data.message, 'error');
       }
@@ -446,6 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         showToast('Settings saved successfully!', 'success');
+        settingsModal.style.display = 'none';
         loadInitialData();
       }
     } catch (err) {
@@ -854,6 +906,180 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+
+
+  // Preview Modal State & Handlers
+  let currentPreviewItems = [];
+  let selectedPreviewIds = new Set();
+  let previewSortColumn = 'title'; // 'title', 'year', 'rating'
+  let previewSortOrder = 'asc';    // 'asc', 'desc'
+
+  const previewSearchInput = document.getElementById('preview-search-input');
+  const previewMasterCheckbox = document.getElementById('preview-master-checkbox');
+  const previewSelectAllBtn = document.getElementById('preview-select-all-btn');
+  const previewDeselectAllBtn = document.getElementById('preview-deselect-all-btn');
+  const previewSelectedCount = document.getElementById('preview-selected-count');
+  const previewSyncSelectedBtn = document.getElementById('preview-sync-selected-btn');
+  const previewSyncBtnCount = document.getElementById('preview-sync-btn-count');
+
+  const thSortTitle = document.getElementById('th-sort-title');
+  const thSortYear = document.getElementById('th-sort-year');
+  const thSortRating = document.getElementById('th-sort-rating');
+
+  function updatePreviewSortIcons() {
+    document.getElementById('sort-icon-title').textContent = previewSortColumn === 'title' ? (previewSortOrder === 'asc' ? '▲' : '▼') : '↕️';
+    document.getElementById('sort-icon-year').textContent = previewSortColumn === 'year' ? (previewSortOrder === 'asc' ? '▲' : '▼') : '↕️';
+    document.getElementById('sort-icon-rating').textContent = previewSortColumn === 'rating' ? (previewSortOrder === 'asc' ? '▲' : '▼') : '↕️';
+  }
+
+  function handlePreviewSort(column) {
+    if (previewSortColumn === column) {
+      previewSortOrder = previewSortOrder === 'asc' ? 'desc' : 'asc';
+    } else {
+      previewSortColumn = column;
+      previewSortOrder = column === 'year' || column === 'rating' ? 'desc' : 'asc';
+    }
+    updatePreviewSortIcons();
+    renderPreviewTable();
+  }
+
+  thSortTitle?.addEventListener('click', () => handlePreviewSort('title'));
+  thSortYear?.addEventListener('click', () => handlePreviewSort('year'));
+  thSortRating?.addEventListener('click', () => handlePreviewSort('rating'));
+
+  function updatePreviewSelectionCounters() {
+    const count = selectedPreviewIds.size;
+    if (previewSelectedCount) previewSelectedCount.textContent = `${count} izbranih`;
+    if (previewSyncBtnCount) previewSyncBtnCount.textContent = count;
+    if (previewSyncSelectedBtn) previewSyncSelectedBtn.disabled = count === 0;
+
+    if (previewMasterCheckbox) {
+      const visibleCheckboxes = previewItemsBody.querySelectorAll('.preview-item-checkbox');
+      if (visibleCheckboxes.length === 0) {
+        previewMasterCheckbox.checked = false;
+        previewMasterCheckbox.indeterminate = false;
+      } else {
+        const visibleChecked = Array.from(visibleCheckboxes).filter(cb => cb.checked).length;
+        previewMasterCheckbox.checked = visibleChecked === visibleCheckboxes.length;
+        previewMasterCheckbox.indeterminate = visibleChecked > 0 && visibleChecked < visibleCheckboxes.length;
+      }
+    }
+  }
+
+  previewMasterCheckbox?.addEventListener('change', () => {
+    const isChecked = previewMasterCheckbox.checked;
+    previewItemsBody.querySelectorAll('.preview-item-checkbox').forEach(cb => {
+      cb.checked = isChecked;
+      const id = String(cb.dataset.id);
+      if (isChecked) selectedPreviewIds.add(id);
+      else selectedPreviewIds.delete(id);
+    });
+    updatePreviewSelectionCounters();
+  });
+
+  previewSelectAllBtn?.addEventListener('click', () => {
+    currentPreviewItems.forEach(it => selectedPreviewIds.add(String(it.id)));
+    renderPreviewTable();
+  });
+
+  previewDeselectAllBtn?.addEventListener('click', () => {
+    selectedPreviewIds.clear();
+    renderPreviewTable();
+  });
+
+  previewSearchInput?.addEventListener('input', () => {
+    renderPreviewTable();
+  });
+
+  function renderPreviewTable() {
+    if (!currentPreviewItems || currentPreviewItems.length === 0) {
+      previewItemsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: #9ca3af;">No items match the selected filter criteria.</td></tr>';
+      updatePreviewSelectionCounters();
+      return;
+    }
+
+    const searchQuery = (previewSearchInput?.value || '').trim().toLowerCase();
+    let filtered = currentPreviewItems.filter(item => {
+      if (!searchQuery) return true;
+      const slo = (item.titleSlo || '').toLowerCase();
+      const en = (item.titleEn || '').toLowerCase();
+      const genres = (item.genres || '').toLowerCase();
+      const folder = (item.targetFolder || '').toLowerCase();
+      return slo.includes(searchQuery) || en.includes(searchQuery) || genres.includes(searchQuery) || folder.includes(searchQuery);
+    });
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let valA, valB;
+      if (previewSortColumn === 'year') {
+        valA = parseInt(a.year || '0', 10) || 0;
+        valB = parseInt(b.year || '0', 10) || 0;
+      } else if (previewSortColumn === 'rating') {
+        valA = parseFloat(a.rating || '0') || 0;
+        valB = parseFloat(b.rating || '0') || 0;
+      } else {
+        valA = (a.titleSlo || a.titleEn || '').toLowerCase();
+        valB = (b.titleSlo || b.titleEn || '').toLowerCase();
+      }
+
+      if (valA < valB) return previewSortOrder === 'asc' ? -1 : 1;
+      if (valA > valB) return previewSortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    if (filtered.length === 0) {
+      previewItemsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: #9ca3af;">No movies or series match your search query.</td></tr>';
+      updatePreviewSelectionCounters();
+      return;
+    }
+
+    previewItemsBody.innerHTML = filtered.map(item => {
+      const isChecked = selectedPreviewIds.has(String(item.id));
+      return `
+        <tr style="cursor: pointer; ${isChecked ? 'background: rgba(2, 132, 199, 0.12);' : ''}">
+          <td style="text-align: center;" onclick="event.stopPropagation();">
+            <input type="checkbox" class="preview-item-checkbox" data-id="${item.id}" ${isChecked ? 'checked' : ''} />
+          </td>
+          <td><span class="type-pill type-${item.type}">${item.type.toUpperCase()}</span></td>
+          <td>
+            <strong style="color: #f3f4f6;">${item.titleSlo}</strong>
+            ${item.titleEn && item.titleEn !== item.titleSlo ? `<br><small style="color:#9ca3af;">${item.titleEn}</small>` : ''}
+          </td>
+          <td style="font-weight: 600; color: #cbd5e1;">${item.year}</td>
+          <td style="color: #facc15; font-weight: 600;">⭐ ${item.rating || 'N/A'}</td>
+          <td style="color:#a5b4fc; font-size:0.75rem;">${item.genres}</td>
+          <td style="font-family:monospace; font-size:0.75rem; color:#86efac;">${item.targetFolder}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Attach Row and Checkbox Click Handlers
+    previewItemsBody.querySelectorAll('tr').forEach(row => {
+      const checkbox = row.querySelector('.preview-item-checkbox');
+      if (!checkbox) return;
+      
+      row.addEventListener('click', (e) => {
+        if (e.target === checkbox) return;
+        checkbox.checked = !checkbox.checked;
+        const id = String(checkbox.dataset.id);
+        if (checkbox.checked) selectedPreviewIds.add(id);
+        else selectedPreviewIds.delete(id);
+        row.style.background = checkbox.checked ? 'rgba(2, 132, 199, 0.12)' : '';
+        updatePreviewSelectionCounters();
+      });
+
+      checkbox.addEventListener('change', () => {
+        const id = String(checkbox.dataset.id);
+        if (checkbox.checked) selectedPreviewIds.add(id);
+        else selectedPreviewIds.delete(id);
+        row.style.background = checkbox.checked ? 'rgba(2, 132, 199, 0.12)' : '';
+        updatePreviewSelectionCounters();
+      });
+    });
+
+    updatePreviewSelectionCounters();
+  }
+
   // Job Preview Button in Modal
   jobPreviewBtn.addEventListener('click', async () => {
     jobPreviewBtn.disabled = true;
@@ -879,7 +1105,10 @@ document.addEventListener('DOMContentLoaded', () => {
       previewTitle.textContent = '🔍 Sync Preview';
       previewSubtitle.textContent = 'Calculating matching items from SloFlix...';
       previewSummaryTags.innerHTML = '';
-      previewItemsBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">⏳ Fetching catalog...</td></tr>';
+      previewItemsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;">⏳ Fetching catalog...</td></tr>';
+      
+      if (previewSearchInput) previewSearchInput.value = '';
+      selectedPreviewIds.clear();
 
       const res = await fetch('/api/sync/preview', {
         method: 'POST',
@@ -889,6 +1118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
 
       if (data.success) {
+        currentPreviewItems = data.items || [];
         previewTitle.textContent = `🔍 Preview (${data.totalItems} items matching)`;
         previewSubtitle.textContent = `Found ${data.totalMovies} movies and ${data.totalShows} series matching current filters:`;
 
@@ -902,29 +1132,59 @@ document.addEventListener('DOMContentLoaded', () => {
           ${payload.itemLimit ? `<span class="filter-badge">🔢 Limit: Top ${payload.itemLimit}</span>` : '<span class="filter-badge">🔢 Limit: All</span>'}
         `;
 
-        if (!data.items || data.items.length === 0) {
-          previewItemsBody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem; color: #9ca3af;">No items match the selected filter criteria.</td></tr>';
-        } else {
-          previewItemsBody.innerHTML = data.items.map(item => `
-            <tr>
-              <td><span class="type-pill type-${item.type}">${item.type.toUpperCase()}</span></td>
-              <td>
-                <strong>${item.titleSlo}</strong>
-                ${item.titleEn && item.titleEn !== item.titleSlo ? `<br><small style="color:#9ca3af;">${item.titleEn}</small>` : ''}
-              </td>
-              <td>${item.year}</td>
-              <td>⭐ ${item.rating}</td>
-              <td style="color:#a5b4fc; font-size:0.75rem;">${item.genres}</td>
-              <td style="font-family:monospace; font-size:0.75rem; color:#86efac;">${item.targetFolder}</td>
-            </tr>
-          `).join('');
-        }
+        renderPreviewTable();
+      } else {
+        previewItemsBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #ef4444; padding: 2rem;">Error: ${data.message}</td></tr>`;
       }
     } catch (err) {
-      previewItemsBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: #ef4444; padding: 2rem;">Error: ${err.message}</td></tr>`;
+      previewItemsBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color: #ef4444; padding: 2rem;">Error: ${err.message}</td></tr>`;
     } finally {
       jobPreviewBtn.disabled = false;
       jobPreviewBtn.textContent = '🔍 Preview Matching';
+    }
+  });
+
+  // Selective Sync Trigger Button
+  previewSyncSelectedBtn?.addEventListener('click', async () => {
+    if (selectedPreviewIds.size === 0) return;
+
+    const currentJobId = document.getElementById('job-id').value;
+    const targetJobId = currentJobId || (allJobs[0] ? allJobs[0].id : null);
+
+    if (!targetJobId) {
+      showToast('Error: No active sync profile found.', 'error');
+      return;
+    }
+
+    const count = selectedPreviewIds.size;
+    if (!confirm(`Are you sure you want to trigger synchronization for ${count} selected items?`)) return;
+
+    previewSyncSelectedBtn.disabled = true;
+    previewSyncSelectedBtn.textContent = 'Starting sync...';
+
+    try {
+      const res = await fetch(`/api/jobs/${targetJobId}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          force: true,
+          targetItemIds: Array.from(selectedPreviewIds)
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`🚀 Selective sync started for ${count} items!`, 'success');
+        previewModal.style.display = 'none';
+        jobModal.style.display = 'none';
+        syncLogsModal.style.display = 'flex';
+      } else {
+        showToast(`Error: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`, 'error');
+    } finally {
+      previewSyncSelectedBtn.disabled = false;
+      previewSyncSelectedBtn.textContent = `▶️ Sync Selected Only (${selectedPreviewIds.size})`;
     }
   });
 
@@ -935,7 +1195,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderHistory(history = []) {
     if (!historyList) return;
     if (history.length === 0) {
-      historyList.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem;">Ni še zabeleženih zagonov opravil.</div>';
+      historyList.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem;">No job execution runs recorded yet.</div>';
       return;
     }
 
@@ -945,10 +1205,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const itemsHtml = (entry.createdItems && entry.createdItems.length > 0)
         ? `<div style="margin-top: 0.4rem; padding-top: 0.4rem; border-top: 1px dashed #334155; font-size: 0.75rem;">
-             <strong style="color: #93c5fd;">Novo dodano (${entry.createdItems.length}):</strong>
+             <strong style="color: #93c5fd;">Newly added (${entry.createdItems.length}):</strong>
              <ul style="margin: 0.25rem 0 0 1rem; padding: 0; color: #86efac; font-family: monospace;">
                ${entry.createdItems.slice(0, 10).map(it => `<li>${it.title} (${it.year || 'N/A'})</li>`).join('')}
-               ${entry.createdItems.length > 10 ? `<li style="color:#94a3b8;">... in še ${entry.createdItems.length - 10} vsebin</li>` : ''}
+               ${entry.createdItems.length > 10 ? `<li style="color:#94a3b8;">... and ${entry.createdItems.length - 10} more items</li>` : ''}
              </ul>
            </div>`
         : '';
@@ -959,9 +1219,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <strong style="color: #f3f4f6; font-size: 0.9rem;">${entry.jobName || 'Sync Job'}</strong>
               <span style="font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; background: ${isAuto ? '#3b82f620' : '#8b5cf620'}; color: ${isAuto ? '#60a5fa' : '#c084fc'}; border: 1px solid ${isAuto ? '#3b82f640' : '#8b5cf640'};">
-                ${isAuto ? '⏰ AVTOMATSKO' : '👤 ROČNO'}
+                ${isAuto ? '⏰ AUTOMATIC' : '👤 MANUAL'}
               </span>
-              <strong style="color: ${isSuccess ? '#10b981' : '#ef4444'};">${isSuccess ? '✅ Uspešno' : '❌ Napaka'}</strong>
+              <strong style="color: ${isSuccess ? '#10b981' : '#ef4444'};">${isSuccess ? '✅ Success' : '❌ Error'}</strong>
               <span style="color: var(--text-muted); font-size: 0.75rem;">(${entry.timestamp})</span>
             </div>
             <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">${entry.durationSec ? entry.durationSec + 's' : ''}</span>
@@ -981,14 +1241,21 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/sync/status');
       const data = await res.json();
       if (data) {
-        if (data.logs) {
+        if (data.logs && data.logs !== logOutput.textContent) {
+          // Check if user is already near bottom (within 40px)
+          const isAtBottom = logOutput.scrollHeight - logOutput.scrollTop - logOutput.clientHeight < 40;
           logOutput.textContent = data.logs;
-          logOutput.scrollTop = logOutput.scrollHeight;
+          if (isAtBottom) {
+            logOutput.scrollTop = logOutput.scrollHeight;
+          }
         }
 
-        if (data.bridgeLogs) {
+        if (data.bridgeLogs && data.bridgeLogs !== bridgeLogOutput.textContent) {
+          const isAtBottom = bridgeLogOutput.scrollHeight - bridgeLogOutput.scrollTop - bridgeLogOutput.clientHeight < 40;
           bridgeLogOutput.textContent = data.bridgeLogs;
-          bridgeLogOutput.scrollTop = bridgeLogOutput.scrollHeight;
+          if (isAtBottom) {
+            bridgeLogOutput.scrollTop = bridgeLogOutput.scrollHeight;
+          }
         }
 
         if (data.history) {
@@ -1004,6 +1271,8 @@ document.addEventListener('DOMContentLoaded', () => {
           allJobs = data.jobs;
           renderJobsList(allJobs);
         }
+
+        updateQuickStats();
       }
     } catch {}
   }, 1500);

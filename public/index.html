@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="sl">
+<html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,180 +10,190 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
+
 <body>
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
       <div class="logo-area">
-        <div class="logo-badge">JSF</div>
         <div>
           <h1>JellySloFlix</h1>
           <span class="subtitle">Multi-Job Sync Engine & Stream Bridge for Jellyfin</span>
         </div>
       </div>
-      <div class="status-indicator">
-        <span class="status-dot" id="server-status-dot"></span>
-        <span id="server-status-text">Bridge Active</span>
+      <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+        <span class="live-tag" id="sync-running-tag" style="display:none; margin-right: 0.4rem;">SYNCING...</span>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-open-sync-logs">📜 Sync Logs</button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-open-bridge-logs">⚡ Bridge Stream</button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-open-history">📅 History</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="toggle-settings-btn">⚙️ Settings</button>
       </div>
     </header>
 
-    <!-- Global Settings Section (Collapsible / Compact) -->
-    <!-- Global Settings Section (Collapsible / Compact) -->
-    <section class="card settings-card">
-      <div class="card-header">
-        <div>
-          <h2>🔐 SloFlix & Jellyfin Integrations</h2>
-          <p>SloFlix credentials, stream proxy configuration, and Jellyfin Auto-Library Refresh.</p>
-        </div>
-        <button type="button" class="btn btn-secondary btn-sm" id="toggle-settings-btn">👁️ Show / Hide Settings</button>
-      </div>
-
-      <form id="global-settings-form" style="display: none;">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="username">Email / Username</label>
-            <input type="text" id="username" name="username" required autocomplete="username" placeholder="user@example.com" />
-          </div>
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" />
-          </div>
-          <div class="form-group">
-            <label for="bridgeUrl">Bridge URL in .strm</label>
-            <input type="text" id="bridgeUrl" name="bridgeUrl" required placeholder="http://jellysloflix:3849 or http://192.168.1.100:3849" />
-          </div>
-          <div class="form-group">
-            <label for="port">Port</label>
-            <input type="number" id="port" name="port" required value="3849" />
-          </div>
-        </div>
-
-        <!-- Jellyfin Auto-Refresh Integration Sub-section -->
-        <div style="margin-top: 1rem; padding: 1rem; background: rgba(0, 164, 228, 0.07); border: 1px solid rgba(0, 164, 228, 0.25); border-radius: 8px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
-            <div style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
-              <span>🍿 Jellyfin Auto-Library Refresh</span>
-            </div>
-            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
-              <input type="checkbox" id="jellyfinAutoRefresh" name="jellyfinAutoRefresh" checked />
-              <span>Auto-refresh library after sync</span>
-            </label>
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="grid-column: span 2;">
-              <label for="jellyfinUrl">Jellyfin Server URL</label>
-              <input type="text" id="jellyfinUrl" name="jellyfinUrl" placeholder="http://jellyfin:8096 or http://192.168.1.100:8096" />
-            </div>
-            <div class="form-group" style="grid-column: span 2;">
-              <label for="jellyfinApiKey">Jellyfin API Key (Dashboard &rarr; API Keys)</label>
-              <input type="text" id="jellyfinApiKey" name="jellyfinApiKey" placeholder="e.g. 48f93a1c..." />
-            </div>
-          </div>
-          <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-            <button type="button" class="btn btn-outline btn-sm" id="test-jellyfin-btn">🔗 Test Jellyfin Connection / Refresh</button>
-          </div>
-        </div>
-
-        <div class="form-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: space-between; align-items: center;">
-          <div style="display: flex; gap: 0.5rem;">
-            <button type="submit" class="btn btn-primary btn-sm" id="save-settings-btn">💾 Save All Settings</button>
-            <button type="button" class="btn btn-outline btn-sm" id="test-auth-btn">🔐 Test SloFlix Auth</button>
-          </div>
+    <!-- Global Settings Modal Popup -->
+    <div id="settings-modal" class="modal">
+      <div class="modal-content" style="max-width: 800px; width: 95%;">
+        <div class="modal-header">
           <div>
-            <button type="button" class="btn btn-warning btn-sm" id="mass-convert-subtitles-btn">🔄 Convert all existing VTT to SRT</button>
+            <h3>🔐 SloFlix & Jellyfin Integrations</h3>
+            <span class="subtitle">SloFlix credentials, streaming bridge configuration, and Jellyfin Auto-Library Refresh.</span>
           </div>
-        </div>
-      </form>
-    </section>
-
-    <!-- Multi-Job Profiles Section -->
-    <section class="card">
-      <div class="card-header">
-        <div>
-          <h2>📋 Synchronization Jobs & Schedulers</h2>
-          <p>Configure multiple independent sync profiles with custom schedules, target folders, and filters.</p>
-        </div>
-        <button type="button" class="btn btn-success" id="create-job-btn">➕ Create New Sync Job</button>
-      </div>
-
-      <div class="jobs-grid" id="jobs-grid-container">
-        <!-- Dynamically rendered Job Cards -->
-      </div>
-    </section>
-
-    <!-- Graphical File Explorer Section -->
-    <section class="card explorer-card">
-      <div class="card-header">
-        <div>
-          <h2>📁 Graphical Media File Explorer</h2>
-          <p>Browse media folders, inspect and edit <code>movie.nfo</code> / <code>.strm</code> files, view posters, and manage subtitles.</p>
-        </div>
-        <div class="explorer-header-actions" style="display: flex; gap: 0.5rem; align-items: center;">
-          <select id="explorer-root-select" class="form-control" style="background:#111827; color:#f3f4f6; border:1px solid #374151; border-radius:6px; padding:0.4rem 0.6rem; font-size:0.85rem;">
-            <option value="">Select Folder Root...</option>
-          </select>
-          <button type="button" class="btn btn-secondary btn-sm" id="explorer-refresh-btn">🔄 Refresh</button>
-        </div>
-      </div>
-
-      <div class="explorer-container">
-        <!-- Breadcrumbs Navigation -->
-        <div class="explorer-breadcrumbs" id="explorer-breadcrumbs">
-          <span class="breadcrumb-item active">📁 Media Root</span>
+          <button type="button" class="modal-close-btn" id="close-settings-btn">&times;</button>
         </div>
 
-        <!-- Quick Filter Box -->
-        <div class="explorer-toolbar" style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
-          <div style="position: relative; width: 100%; max-width: 320px;">
-            <input type="text" id="explorer-search-input" placeholder="🔍 Search folder contents..." style="width: 100%; background: #111827; border: 1px solid #374151; border-radius: 6px; padding: 0.4rem 0.6rem 0.4rem 2rem; color: #f3f4f6; font-size: 0.85rem;" />
-            <span style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); opacity: 0.6;"></span>
+        <form id="global-settings-form">
+          <div class="modal-body">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="username">Email / Username</label>
+                <input type="text" id="username" name="username" required autocomplete="username"
+                  placeholder="user@example.com" />
+              </div>
+              <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password"
+                  placeholder="••••••••" />
+              </div>
+              <div class="form-group">
+                <label for="bridgeUrl">Bridge URL in .strm</label>
+                <input type="text" id="bridgeUrl" name="bridgeUrl" required
+                  placeholder="http://jellysloflix:3849 or http://192.168.1.100:3849" />
+              </div>
+              <div class="form-group">
+                <label for="port">Port</label>
+                <input type="number" id="port" name="port" required value="3849" />
+              </div>
+            </div>
+
+            <!-- Jellyfin Auto-Refresh Integration Sub-section -->
+            <div
+              style="margin-top: 1rem; padding: 1rem; background: rgba(0, 164, 228, 0.07); border: 1px solid rgba(0, 164, 228, 0.25); border-radius: 8px;">
+              <div
+                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+                  <span>🍿 Jellyfin Auto-Library Refresh</span>
+                </div>
+                <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
+                  <input type="checkbox" id="jellyfinAutoRefresh" name="jellyfinAutoRefresh" checked />
+                  <span>Auto-refresh Jellyfin library after sync</span>
+                </label>
+              </div>
+              <div class="form-row">
+                <div class="form-group" style="grid-column: span 2;">
+                  <label for="jellyfinUrl">Jellyfin Server URL</label>
+                  <input type="text" id="jellyfinUrl" name="jellyfinUrl"
+                    placeholder="http://jellyfin:8096 or http://192.168.1.100:8096" />
+                </div>
+                <div class="form-group" style="grid-column: span 2;">
+                  <label for="jellyfinApiKey">Jellyfin API Key (Dashboard &rarr; API Keys)</label>
+                  <input type="text" id="jellyfinApiKey" name="jellyfinApiKey" placeholder="e.g. 48f93a1c..." />
+                </div>
+              </div>
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+                <button type="button" class="btn btn-outline btn-sm" id="test-jellyfin-btn">🔗 Test Jellyfin Connection / Refresh Now</button>
+              </div>
+            </div>
+
+            <!-- Subtitle Mass Conversion Tool Section -->
+            <div style="margin-top: 1rem; padding: 0.85rem 1rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <strong style="color: #fcd34d; font-size: 0.875rem;">Batch Subtitle Converter</strong>
+                <p style="color: #94a3b8; font-size: 0.775rem; margin-top: 0.15rem;">Scan all media folders and convert existing .vtt subtitles to .srt format.</p>
+              </div>
+              <button type="button" class="btn btn-warning btn-sm" id="mass-convert-subtitles-btn">🔄 Convert all VTT to SRT</button>
+            </div>
           </div>
-          <div id="explorer-item-count" style="font-size: 0.85rem; color: #9ca3af;">Loading items...</div>
-        </div>
 
-        <!-- File Table View -->
-        <div class="explorer-table-wrapper" style="overflow-x: auto; max-height: 420px; border: 1px solid #262c3b; border-radius: 8px; background: #0c101a;">
-          <table class="explorer-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
-            <thead>
-              <tr style="background: #141a29; color: #94a3b8; border-bottom: 1px solid #262c3b;">
-                <th style="padding: 0.6rem 0.8rem;">Name</th>
-                <th style="padding: 0.6rem 0.8rem; width: 100px;">Type</th>
-                <th style="padding: 0.6rem 0.8rem; width: 110px;">Size / Items</th>
-                <th style="padding: 0.6rem 0.8rem; width: 160px;">Modified</th>
-                <th style="padding: 0.6rem 0.8rem; width: 140px; text-align: right;">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="explorer-table-body">
-              <!-- Dynamically populated items -->
-              <tr>
-                <td colspan="5" style="padding: 1.5rem; text-align: center; color: #64748b;">Select a folder or refresh to explore.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <button type="button" class="btn btn-outline btn-sm" id="test-auth-btn">🔐 Test SloFlix Auth</button>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="btn btn-secondary" id="cancel-settings-btn">Close</button>
+              <button type="submit" class="btn btn-primary" id="save-settings-btn">💾 Save Settings</button>
+            </div>
+          </div>
+        </form>
       </div>
-    </section>
+    </div>
 
-    <!-- Live Monitor & Job History -->
-    <section class="card">
-      <div class="terminal-container">
-        <div class="terminal-header">
-          <div class="terminal-tabs">
-            <button type="button" class="tab-btn active" id="tab-sync-logs">Live Sync Logs</button>
-            <button type="button" class="tab-btn" id="tab-bridge-logs">Bridge Stream Logs</button>
-            <button type="button" class="tab-btn" id="tab-job-history">📜 Job Execution History</button>
+    <!-- Main 2-Column Dashboard Grid -->
+    <div class="main-dashboard-grid">
+      <!-- Left Column: Sync Jobs -->
+      <div class="dashboard-col left-col">
+        <!-- Multi-Job Profiles Section -->
+        <section class="card">
+          <div class="card-header">
+            <div>
+              <h2>📋 Sync Jobs</h2>
+            </div>
+            <button type="button" class="btn btn-success btn-sm" id="create-job-btn">➕ New Sync Job</button>
           </div>
-          <span class="live-tag" id="sync-running-tag" style="display:none;">SYNCING IN PROGRESS...</span>
-        </div>
-        <pre class="terminal-output" id="log-output">System initialized. Click "Run Now" on any job to start synchronization.</pre>
-        <pre class="terminal-output" id="bridge-log-output" style="display:none; color: #60a5fa;">Bridge server ready. Waiting for playback requests from Jellyfin / VLC...</pre>
-        <div id="history-container" style="display: none; background: #0a0d14; max-height: 350px; overflow-y: auto; padding: 0.75rem;">
-          <div id="history-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
-            <!-- Dynamically populated history entries -->
+
+          <div class="jobs-grid" id="jobs-grid-container">
+            <!-- Dynamically rendered Job Cards -->
           </div>
-        </div>
+        </section>
       </div>
-    </section>
+
+      <!-- Right Column: Graphical Media File Explorer -->
+      <div class="dashboard-col right-col">
+        <section class="card explorer-card">
+          <div class="card-header">
+            <div>
+              <h2>📁 File Explorer</h2>
+            </div>
+            <div class="explorer-header-actions" style="display: flex; gap: 0.4rem; align-items: center;">
+              <select id="explorer-root-select" class="form-control"
+                style="background:#111827; color:#f3f4f6; border:1px solid #374151; border-radius:6px; padding:0.35rem 0.5rem; font-size:0.8rem; max-width: 170px;">
+                <option value="">Select Folder...</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="explorer-refresh-btn"
+                title="Refresh Folder">🔄</button>
+            </div>
+          </div>
+
+          <div class="explorer-container">
+            <!-- Breadcrumbs Navigation -->
+            <div class="explorer-breadcrumbs" id="explorer-breadcrumbs">
+              <span class="breadcrumb-item active">📁 Media Root</span>
+            </div>
+
+            <!-- Quick Filter Box -->
+            <div class="explorer-toolbar"
+              style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+              <div style="position: relative; flex: 1;">
+                <input type="text" id="explorer-search-input" placeholder="🔍 Filter files in directory..."
+                  style="width: 100%; background: #111827; border: 1px solid #374151; border-radius: 6px; padding: 0.35rem 0.6rem; color: #f3f4f6; font-size: 0.825rem;" />
+              </div>
+              <div id="explorer-item-count" style="font-size: 0.8rem; color: #9ca3af; white-space: nowrap;">Loading...
+              </div>
+            </div>
+
+            <!-- File Table View -->
+            <div class="explorer-table-wrapper"
+              style="overflow-x: auto; max-height: 520px; border: 1px solid #262c3b; border-radius: 8px; background: #0c101a;">
+              <table class="explorer-table"
+                style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                <thead>
+                  <tr
+                    style="background: #141a29; color: #94a3b8; border-bottom: 1px solid #262c3b; position: sticky; top: 0; z-index: 10;">
+                    <th style="padding: 0.5rem 0.7rem;">Name</th>
+                    <th style="padding: 0.5rem 0.7rem; width: 75px;">Type</th>
+                    <th style="padding: 0.5rem 0.7rem; width: 85px;">Size</th>
+                    <th style="padding: 0.5rem 0.7rem; width: 110px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="explorer-table-body">
+                  <!-- Dynamically populated items -->
+                  <tr>
+                    <td colspan="4" style="padding: 1.5rem; text-align: center; color: #64748b;">Select a folder to explore.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
 
     <!-- Create / Edit Job Modal -->
     <div id="job-modal" class="modal">
@@ -202,14 +213,16 @@
             <div class="form-row">
               <div class="form-group" style="grid-column: span 2;">
                 <label for="job-name">Job Name</label>
-                <input type="text" id="job-name" name="name" required placeholder="e.g. 🎬 Movies Daily 24h or 📺 Cartoons" />
+                <input type="text" id="job-name" name="name" required
+                  placeholder="e.g. 🎬 Movies Daily 24h or 📺 Cartoons" />
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label for="job-target-dir">Target Directory (Host / Container Path)</label>
-                <input type="text" id="job-target-dir" name="targetDir" required placeholder="e.g. /media/MoviesSloFlix or /media/ShowsSloFlix" />
+                <input type="text" id="job-target-dir" name="targetDir" required
+                  placeholder="e.g. /media/MoviesSloFlix or /media/ShowsSloFlix" />
               </div>
               <div class="form-group">
                 <label for="job-schedule">Auto-Sync Schedule</label>
@@ -236,14 +249,14 @@
                 </select>
               </div>
               <div class="form-group">
-                <label for="job-sort-by">Razvrsti po (Sort By)</label>
+                <label for="job-sort-by">Sort By</label>
                 <select id="job-sort-by" name="sortBy">
-                  <option value="1">Nazadnje dodano (Recently Added)</option>
-                  <option value="4">Leto: najprej novejše (Year: Newest First)</option>
-                  <option value="3">Najboljša ocena (Highest Rating)</option>
-                  <option value="6">Najbolj gledano (Most Popular)</option>
-                  <option value="5">Leto: najprej starejše (Year: Oldest First)</option>
-                  <option value="2">Najprej dodano (Oldest Added)</option>
+                  <option value="1">Recently Added</option>
+                  <option value="4">Year: Newest First</option>
+                  <option value="3">Highest Rating</option>
+                  <option value="6">Most Popular</option>
+                  <option value="5">Year: Oldest First</option>
+                  <option value="2">Oldest Added</option>
                 </select>
               </div>
               <div class="form-group">
@@ -255,11 +268,13 @@
             <div class="form-row">
               <div class="form-group">
                 <label for="job-min-year">Minimum Release Year</label>
-                <input type="number" id="job-min-year" name="minYear" min="1900" max="2030" placeholder="e.g. 2015 (Optional)" />
+                <input type="number" id="job-min-year" name="minYear" min="1900" max="2030"
+                  placeholder="e.g. 2015 (Optional)" />
               </div>
               <div class="form-group">
                 <label for="job-min-rating">Minimum Rating (0 - 10)</label>
-                <input type="number" id="job-min-rating" name="minRating" min="0" max="10" step="0.5" placeholder="e.g. 7.0 (Optional)" />
+                <input type="number" id="job-min-rating" name="minRating" min="0" max="10" step="0.5"
+                  placeholder="e.g. 7.0 (Optional)" />
               </div>
               <div class="form-group">
                 <label for="job-naming">Naming Scheme</label>
@@ -300,7 +315,7 @@
 
     <!-- Preview Modal -->
     <div id="preview-modal" class="modal">
-      <div class="modal-content">
+      <div class="modal-content" style="max-width: 1000px; width: 95%;">
         <div class="modal-header">
           <div>
             <h3 id="preview-title">🔍 Sync Preview</h3>
@@ -310,14 +325,41 @@
         </div>
         <div class="modal-body">
           <div class="preview-filters-summary" id="preview-summary-tags"></div>
+
+          <!-- Preview Toolbar with Live Search and Selection Actions -->
+          <div class="preview-toolbar"
+            style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+            <div style="position: relative; flex: 1; min-width: 250px;">
+              <input type="text" id="preview-search-input" placeholder="🔍 Search by title (SLO / EN) or genre..."
+                style="width: 100%; background: #111827; border: 1px solid #374151; border-radius: 6px; padding: 0.45rem 0.75rem; color: #f3f4f6; font-size: 0.85rem;" />
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <button type="button" class="btn btn-outline btn-sm" id="preview-select-all-btn">Select All</button>
+              <button type="button" class="btn btn-outline btn-sm" id="preview-deselect-all-btn">Deselect All</button>
+              <span id="preview-selected-count" style="font-size: 0.85rem; font-weight: 600; color: #38bdf8;">0 selected</span>
+            </div>
+          </div>
+
           <div class="preview-table-container">
             <table class="preview-table">
               <thead>
                 <tr>
-                  <th>Type</th>
-                  <th>Title (Slovene / EN)</th>
-                  <th>Year</th>
-                  <th>Rating</th>
+                  <th style="width: 40px; text-align: center;">
+                    <input type="checkbox" id="preview-master-checkbox" title="Select All" />
+                  </th>
+                  <th style="width: 70px;">Type</th>
+                  <th id="th-sort-title" class="sortable-th" style="cursor: pointer;"
+                    title="Click to sort by title">
+                    Title (Slovene / EN) <span class="sort-indicator" id="sort-icon-title">↕️</span>
+                  </th>
+                  <th id="th-sort-year" class="sortable-th" style="cursor: pointer; width: 85px;"
+                    title="Click to sort by year">
+                    Year <span class="sort-indicator" id="sort-icon-year">↕️</span>
+                  </th>
+                  <th id="th-sort-rating" class="sortable-th" style="cursor: pointer; width: 95px;"
+                    title="Click to sort by rating">
+                    Rating <span class="sort-indicator" id="sort-icon-rating">↕️</span>
+                  </th>
                   <th>Genres / Tags</th>
                   <th>Target Folder</th>
                 </tr>
@@ -328,7 +370,12 @@
             </table>
           </div>
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" style="justify-content: space-between;">
+          <div>
+            <button type="button" class="btn btn-success" id="preview-sync-selected-btn" disabled>
+              ▶️ Sync Selected Only (<span id="preview-sync-btn-count">0</span>)
+            </button>
+          </div>
           <button type="button" class="btn btn-secondary" id="preview-cancel-btn">Close</button>
         </div>
       </div>
@@ -345,16 +392,78 @@
           <button type="button" class="modal-close-btn" id="file-editor-close-btn">&times;</button>
         </div>
         <div class="modal-body">
-          <div id="file-image-preview-container" style="display:none; text-align:center; padding:1rem; background:#0a0e17; border-radius:6px; margin-bottom:1rem;">
-            <img id="file-image-preview" src="" alt="Media Poster/Fanart" style="max-height: 350px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+          <div id="file-image-preview-container"
+            style="display:none; text-align:center; padding:1rem; background:#0a0e17; border-radius:6px; margin-bottom:1rem;">
+            <img id="file-image-preview" src="" alt="Media Poster/Fanart"
+              style="max-height: 350px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
           </div>
           <div id="file-editor-textarea-container">
-            <textarea id="file-editor-content" style="width:100%; height:320px; background:#0f172a; color:#f8fafc; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid #334155; border-radius:6px; resize:vertical; line-height:1.4;"></textarea>
+            <textarea id="file-editor-content"
+              style="width:100%; height:320px; background:#0f172a; color:#f8fafc; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid #334155; border-radius:6px; resize:vertical; line-height:1.4;"></textarea>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="file-editor-cancel-btn">Close</button>
           <button type="button" class="btn btn-primary" id="file-editor-save-btn">💾 Save Changes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Logs Modal -->
+    <div id="sync-logs-modal" class="modal">
+      <div class="modal-content" style="max-width: 900px; width: 95%;">
+        <div class="modal-header">
+          <div>
+            <h3>📜 Sync Logs</h3>
+            <span class="subtitle">Live output from catalog sync and metadata download jobs</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="sync-logs-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 0;">
+          <pre class="terminal-output" id="log-output" style="max-height: 480px; margin: 0; border-radius: 0 0 6px 6px;">System ready. Click "Run Job" on any profile to begin synchronization.</pre>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="sync-logs-cancel-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bridge Stream Logs Modal -->
+    <div id="bridge-logs-modal" class="modal">
+      <div class="modal-content" style="max-width: 900px; width: 95%;">
+        <div class="modal-header">
+          <div>
+            <h3>⚡ Bridge Stream Logs</h3>
+            <span class="subtitle">Real-time HTTP playback requests and byte-range streaming proxy logs</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="bridge-logs-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 0;">
+          <pre class="terminal-output" id="bridge-log-output" style="max-height: 480px; margin: 0; color: #60a5fa; border-radius: 0 0 6px 6px;">Bridge server ready. Waiting for playback requests from Jellyfin / VLC...</pre>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="bridge-logs-cancel-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Job Execution History Modal -->
+    <div id="history-modal" class="modal">
+      <div class="modal-content" style="max-width: 900px; width: 95%;">
+        <div class="modal-header">
+          <div>
+            <h3>📅 Job Execution History</h3>
+            <span class="subtitle">Audit log of recent automatic and manual sync runs</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="history-close-btn">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 480px; overflow-y: auto;">
+          <div id="history-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
+            <!-- Dynamically populated history entries -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="history-cancel-btn">Close</button>
         </div>
       </div>
     </div>
@@ -365,4 +474,5 @@
 
   <script src="/app.js"></script>
 </body>
+
 </html>

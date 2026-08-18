@@ -37,10 +37,10 @@ body {
 
 .app-container {
   width: 100%;
-  max-width: 1300px;
+  max-width: 1540px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
 /* Header */
@@ -59,15 +59,6 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
-}
-
-.logo-badge {
-  background: linear-gradient(135deg, var(--primary), #a855f7);
-  color: white;
-  font-weight: 700;
-  font-size: 1.25rem;
-  padding: 0.5rem 0.8rem;
-  border-radius: 8px;
 }
 
 .app-header h1 {
@@ -101,41 +92,56 @@ body {
   box-shadow: 0 0 8px #34d399;
 }
 
-/* Cards Grid */
-.dashboard-grid {
+/* Main 2-Column Responsive Dashboard */
+.main-dashboard-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 1.5rem;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 1.25rem;
+  align-items: flex-start;
 }
 
+.dashboard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .main-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Cards */
 .card {
   background: var(--bg-secondary);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
-  padding: 1.75rem;
+  padding: 1.35rem 1.5rem;
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
 }
 
 .card-header {
   border-bottom: 1px solid var(--card-border);
-  padding-bottom: 0.75rem;
+  padding-bottom: 0.65rem;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .card-header h2 {
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 600;
 }
 
 .card-header p {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  margin-top: 0.2rem;
+  margin-top: 0.15rem;
 }
 
 /* Forms */
@@ -498,16 +504,29 @@ input:focus, select:focus, textarea:focus {
   border-bottom: 1px solid #283344;
 }
 
-.type-pill {
-  display: inline-block;
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  font-size: 0.65rem;
-  font-weight: 700;
+.sortable-th {
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.type-movie { background: #3730a3; color: #c7d2fe; }
-.type-show { background: #065f46; color: #a7f3d0; }
+.sortable-th:hover {
+  background-color: #1e293b !important;
+  color: #38bdf8 !important;
+}
+
+.sort-indicator {
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+
+.preview-table input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: #0284c7;
+}
+
 
 .filter-badge {
   display: inline-block;
