@@ -534,12 +534,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mass Subtitle Conversion (VTT -> SRT)
   massConvertSubtitlesBtn?.addEventListener('click', async () => {
-    if (!confirm('Ali želite pretvoriti vse obstoječe .vtt podnapise v mapah v format .srt?')) return;
+    if (!confirm('Do you want to scan all media folders and convert existing .vtt subtitles to .srt format?')) return;
 
     massConvertSubtitlesBtn.disabled = true;
-    massConvertSubtitlesBtn.textContent = 'Pretvarjam podnapise...';
+    massConvertSubtitlesBtn.textContent = 'Converting subtitles...';
     try {
-      showToast('Zagon množične konverzije VTT -> SRT...', 'info');
+      showToast('Starting mass VTT -> SRT conversion...', 'info');
       const res = await fetch('/api/tools/convert-subtitles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -548,18 +548,48 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         const s = data.stats;
-        showToast(`✅ Konverzija zaključena! Najdeno: ${s.found}, Pretvorjeno: ${s.converted}, Že obstaja: ${s.skipped}`, 'success');
+        showToast(`✅ Conversion complete! Found: ${s.found}, Converted: ${s.converted}, Skipped: ${s.skipped}`, 'success');
         if (currentExplorerPath) {
           loadExplorerPath(currentExplorerPath);
         }
       } else {
-        showToast(`Napaka pri konverziji: ${data.message}`, 'error');
+        showToast(`Conversion error: ${data.message}`, 'error');
       }
     } catch (err) {
-      showToast(`Napaka: ${err.message}`, 'error');
+      showToast(`Error: ${err.message}`, 'error');
     } finally {
       massConvertSubtitlesBtn.disabled = false;
-      massConvertSubtitlesBtn.textContent = '🔄 Convert all existing VTT to SRT';
+      massConvertSubtitlesBtn.textContent = '🔄 Convert all VTT to SRT';
+    }
+  });
+
+  // TV Show NFO Repair Tool
+  const fixShowsNfoBtn = document.getElementById('fix-shows-nfo-btn');
+  fixShowsNfoBtn?.addEventListener('click', async () => {
+    if (!confirm('Do you want to scan all TV series folders and restore proper series titles in all corrupted tvshow.nfo files?')) return;
+
+    fixShowsNfoBtn.disabled = true;
+    fixShowsNfoBtn.textContent = 'Repairing NFOs...';
+    try {
+      showToast('Scanning and repairing TV show NFOs...', 'info');
+      const res = await fetch('/api/explorer/fix-shows-nfo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✅ ${data.message}`, 'success');
+        if (currentExplorerPath) {
+          loadExplorerPath(currentExplorerPath);
+        }
+      } else {
+        showToast(`Error repairing: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`, 'error');
+    } finally {
+      fixShowsNfoBtn.disabled = false;
+      fixShowsNfoBtn.textContent = '🔧 Repair All Shows NFO';
     }
   });
 

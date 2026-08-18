@@ -302,8 +302,12 @@ function generateMovieNfo(movie, resolvedTitle = '') {
  * Generate Kodi/Jellyfin compatible tvshow.nfo XML content
  */
 function generateShowNfo(show, resolvedTitle = '') {
-  const title = resolvedTitle || show.media_name || show.media_name_en || show.name || show.title || '';
-  const originalTitle = show.media_name_en || show.media_name || '';
+  let title = resolvedTitle || show.series_name || show.show_name || show.media_name || show.media_name_en || show.name || show.title || '';
+  // Never allow generic "Epizoda" or episode strings as the root series title
+  if (!title || title.toLowerCase().startsWith('epizoda') || title.toLowerCase() === 'untitled') {
+    title = show.series_name || show.show_name || show.original_title || show.media_name_en || show.media_name || '';
+  }
+  const originalTitle = show.series_name_en || show.media_name_en || show.media_name || '';
   const plot = show.media_description || show.description || show.media_synopsis || show.synopsis || '';
   const rawYear = show.media_year || show.year || show.first_air_date;
   const year = extractYear(rawYear, '');
@@ -314,7 +318,7 @@ function generateShowNfo(show, resolvedTitle = '') {
   let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`;
   xml += `<tvshow>\n`;
   xml += `  <title>${escapeXml(title)}</title>\n`;
-  if (originalTitle && originalTitle !== title) {
+  if (originalTitle && originalTitle !== title && !originalTitle.toLowerCase().startsWith('epizoda')) {
     xml += `  <originaltitle>${escapeXml(originalTitle)}</originaltitle>\n`;
   }
   if (plot) {
