@@ -34,12 +34,39 @@ document.addEventListener('DOMContentLoaded', () => {
   let isSyncing = false;
   let runningJobId = null;
 
+  // File Explorer State
+  let currentExplorerPath = '';
+  let currentExplorerItems = [];
+  let activeEditingFilePath = '';
+
   // DOM Elements
   const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
   const globalSettingsForm = document.getElementById('global-settings-form');
   const testAuthBtn = document.getElementById('test-auth-btn');
+  const testJellyfinBtn = document.getElementById('test-jellyfin-btn');
+  const massConvertSubtitlesBtn = document.getElementById('mass-convert-subtitles-btn');
   const jobsGridContainer = document.getElementById('jobs-grid-container');
   const createJobBtn = document.getElementById('create-job-btn');
+
+  // File Explorer Elements
+  const explorerRootSelect = document.getElementById('explorer-root-select');
+  const explorerRefreshBtn = document.getElementById('explorer-refresh-btn');
+  const explorerBreadcrumbs = document.getElementById('explorer-breadcrumbs');
+  const explorerSearchInput = document.getElementById('explorer-search-input');
+  const explorerItemCount = document.getElementById('explorer-item-count');
+  const explorerTableBody = document.getElementById('explorer-table-body');
+
+  // File Editor Modal Elements
+  const fileEditorModal = document.getElementById('file-editor-modal');
+  const fileEditorTitle = document.getElementById('file-editor-title');
+  const fileEditorPath = document.getElementById('file-editor-path');
+  const fileEditorContent = document.getElementById('file-editor-content');
+  const fileEditorCloseBtn = document.getElementById('file-editor-close-btn');
+  const fileEditorCancelBtn = document.getElementById('file-editor-cancel-btn');
+  const fileEditorSaveBtn = document.getElementById('file-editor-save-btn');
+  const fileImagePreviewContainer = document.getElementById('file-image-preview-container');
+  const fileImagePreview = document.getElementById('file-image-preview');
+  const fileEditorTextareaContainer = document.getElementById('file-editor-textarea-container');
 
   // Terminal & Logs Elements
   const tabSyncLogs = document.getElementById('tab-sync-logs');
@@ -151,9 +178,14 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('password').value = globalConfig.password || '';
       document.getElementById('bridgeUrl').value = globalConfig.bridgeUrl || 'http://localhost:3849';
       document.getElementById('port').value = globalConfig.port || 3849;
+      
+      document.getElementById('jellyfinUrl').value = globalConfig.jellyfinUrl || '';
+      document.getElementById('jellyfinApiKey').value = globalConfig.jellyfinApiKey || '';
+      document.getElementById('jellyfinAutoRefresh').checked = globalConfig.jellyfinAutoRefresh !== false;
 
       allJobs = globalConfig.jobs || [];
       renderJobsList(allJobs);
+      loadExplorerRoots();
     } catch (err) {
       showToast(`Error loading configuration: ${err.message}`, 'error');
     }
@@ -399,7 +431,10 @@ document.addEventListener('DOMContentLoaded', () => {
       username: document.getElementById('username').value,
       password: document.getElementById('password').value,
       bridgeUrl: document.getElementById('bridgeUrl').value,
-      port: parseInt(document.getElementById('port').value, 10)
+      port: parseInt(document.getElementById('port').value, 10),
+      jellyfinUrl: document.getElementById('jellyfinUrl').value.trim(),
+      jellyfinApiKey: document.getElementById('jellyfinApiKey').value.trim(),
+      jellyfinAutoRefresh: document.getElementById('jellyfinAutoRefresh').checked
     };
 
     try {
@@ -410,12 +445,387 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Account credentials saved successfully!', 'success');
+        showToast('Settings saved successfully!', 'success');
+        loadInitialData();
       }
     } catch (err) {
       showToast(`Error saving settings: ${err.message}`, 'error');
     }
   });
+
+  // Test Jellyfin Connection / Refresh
+  testJellyfinBtn?.addEventListener('click', async () => {
+    testJellyfinBtn.disabled = true;
+    testJellyfinBtn.textContent = 'Testing connection...';
+    try {
+      const res = await fetch('/api/jellyfin/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jellyfinUrl: document.getElementById('jellyfinUrl').value.trim(),
+          jellyfinApiKey: document.getElementById('jellyfinApiKey').value.trim()
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✅ Jellyfin connection successful! Library refresh triggered.', 'success');
+      } else {
+        showToast(`⚠️ Jellyfin error: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Connection failed: ${err.message}`, 'error');
+    } finally {
+      testJellyfinBtn.disabled = false;
+      testJellyfinBtn.textContent = '🔗 Test Jellyfin Connection / Refresh';
+    }
+  });
+
+  // Mass Subtitle Conversion (VTT -> SRT)
+  massConvertSubtitlesBtn?.addEventListener('click', async () => {
+    if (!confirm('Ali želite pretvoriti vse obstoječe .vtt podnapise v mapah v format .srt?')) return;
+
+    massConvertSubtitlesBtn.disabled = true;
+    massConvertSubtitlesBtn.textContent = 'Pretvarjam podnapise...';
+    try {
+      showToast('Zagon množične konverzije VTT -> SRT...', 'info');
+      const res = await fetch('/api/tools/convert-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: false })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const s = data.stats;
+        showToast(`✅ Konverzija zaključena! Najdeno: ${s.found}, Pretvorjeno: ${s.converted}, Že obstaja: ${s.skipped}`, 'success');
+        if (currentExplorerPath) {
+          loadExplorerPath(currentExplorerPath);
+        }
+      } else {
+        showToast(`Napaka pri konverziji: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Napaka: ${err.message}`, 'error');
+    } finally {
+      massConvertSubtitlesBtn.disabled = false;
+      massConvertSubtitlesBtn.textContent = '🔄 Convert all existing VTT to SRT';
+    }
+  });
+
+  // ----------------------------------------------------
+  // File Explorer Logic
+  // ----------------------------------------------------
+  async function loadExplorerRoots() {
+    try {
+      const res = await fetch('/api/explorer/roots');
+      const data = await res.json();
+      if (data.success && data.roots && data.roots.length > 0) {
+        explorerRootSelect.innerHTML = data.roots.map(r => `<option value="${r}">${r}</option>`).join('');
+        if (!currentExplorerPath) {
+          loadExplorerPath(data.roots[0]);
+        }
+      }
+    } catch (err) {
+      console.warn('Error loading explorer roots:', err.message);
+    }
+  }
+
+  explorerRootSelect?.addEventListener('change', () => {
+    const selected = explorerRootSelect.value;
+    if (selected) loadExplorerPath(selected);
+  });
+
+  explorerRefreshBtn?.addEventListener('click', () => {
+    if (currentExplorerPath) {
+      loadExplorerPath(currentExplorerPath);
+    } else if (explorerRootSelect.value) {
+      loadExplorerPath(explorerRootSelect.value);
+    }
+  });
+
+  async function loadExplorerPath(targetPath) {
+    explorerTableBody.innerHTML = '<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:#94a3b8;">⏳ Loading contents...</td></tr>';
+    try {
+      const res = await fetch(`/api/explorer/tree?path=${encodeURIComponent(targetPath)}`);
+      const data = await res.json();
+      if (!data.success) {
+        explorerTableBody.innerHTML = `<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:#ef4444;">❌ Error: ${data.message}</td></tr>`;
+        return;
+      }
+
+      currentExplorerPath = data.currentPath;
+      currentExplorerItems = data.items || [];
+      renderExplorerBreadcrumbs(data.currentPath);
+      renderExplorerTable(currentExplorerItems, data.parentPath);
+    } catch (err) {
+      explorerTableBody.innerHTML = `<tr><td colspan="5" style="padding:1.5rem; text-align:center; color:#ef4444;">❌ Network error: ${err.message}</td></tr>`;
+    }
+  }
+
+  function renderExplorerBreadcrumbs(fullPath) {
+    const parts = fullPath.replace(/\\/g, '/').split('/').filter(Boolean);
+    const isWindowsDrive = fullPath.match(/^[A-Za-z]:/);
+    
+    let currentAcc = isWindowsDrive ? parts[0] : '';
+    let breadcrumbHtml = `<span class="breadcrumb-item" data-path="${isWindowsDrive ? parts[0] + '/' : '/'}">📁 Root</span>`;
+
+    const startIndex = isWindowsDrive ? 1 : 0;
+    for (let i = startIndex; i < parts.length; i++) {
+      currentAcc += (currentAcc.endsWith('/') || currentAcc.endsWith('\\') ? '' : '/') + parts[i];
+      const isLast = i === parts.length - 1;
+      breadcrumbHtml += `<span class="breadcrumb-separator">/</span>`;
+      if (isLast) {
+        breadcrumbHtml += `<span class="breadcrumb-item active">${parts[i]}</span>`;
+      } else {
+        breadcrumbHtml += `<span class="breadcrumb-item" data-path="${currentAcc}">${parts[i]}</span>`;
+      }
+    }
+
+    explorerBreadcrumbs.innerHTML = breadcrumbHtml;
+
+    explorerBreadcrumbs.querySelectorAll('.breadcrumb-item[data-path]').forEach(el => {
+      el.addEventListener('click', () => loadExplorerPath(el.dataset.path));
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  function getFileIcon(item) {
+    if (item.isDirectory) return '📁';
+    const ext = (item.ext || '').toLowerCase();
+    switch (ext) {
+      case '.strm': return '🎬';
+      case '.nfo': return '📄';
+      case '.srt':
+      case '.vtt': return '💬';
+      case '.jpg':
+      case '.jpeg':
+      case '.png':
+      case '.webp': return '🖼️';
+      default: return '📄';
+    }
+  }
+
+  function renderExplorerTable(items, parentPath) {
+    const query = (explorerSearchInput.value || '').trim().toLowerCase();
+    const filtered = query
+      ? items.filter(it => it.name.toLowerCase().includes(query))
+      : items;
+
+    explorerItemCount.textContent = `${filtered.length} item(s)`;
+
+    let rowsHtml = '';
+
+    // Up one level row
+    if (parentPath && parentPath !== currentExplorerPath) {
+      rowsHtml += `
+        <tr class="explorer-item-row" data-action="navigate" data-path="${parentPath}" style="background:#0f1523;">
+          <td colspan="5" style="padding: 0.6rem 0.8rem; color: #60a5fa; font-weight: 500;">
+            <span class="explorer-icon">⬆️</span> .. [Go Up One Level]
+          </td>
+        </tr>
+      `;
+    }
+
+    if (filtered.length === 0) {
+      rowsHtml += `<tr><td colspan="5" style="padding: 2rem; text-align:center; color:#64748b;">This folder is empty.</td></tr>`;
+      explorerTableBody.innerHTML = rowsHtml;
+      return;
+    }
+
+    for (const item of filtered) {
+      const icon = getFileIcon(item);
+      const extClass = item.isDirectory ? 'ext-dir' : `ext-${(item.ext || '').replace('.', '')}`;
+      const extLabel = item.isDirectory ? 'DIR' : (item.ext ? item.ext.toUpperCase().replace('.', '') : 'FILE');
+      const sizeLabel = item.isDirectory ? `${item.childCount || 0} items` : formatBytes(item.sizeBytes);
+      const dateLabel = item.mtime ? new Date(item.mtime).toLocaleString('sl-SI') : '-';
+
+      const isTextEditable = !item.isDirectory && ['.nfo', '.strm', '.srt', '.vtt', '.txt', '.json'].includes((item.ext || '').toLowerCase());
+      const isImage = !item.isDirectory && ['.jpg', '.jpeg', '.png', '.webp'].includes((item.ext || '').toLowerCase());
+      const isVtt = !item.isDirectory && (item.ext || '').toLowerCase() === '.vtt';
+
+      rowsHtml += `
+        <tr class="explorer-item-row" data-action="${item.isDirectory ? 'navigate' : (isTextEditable || isImage ? 'view' : '')}" data-path="${item.path}" data-ext="${item.ext}">
+          <td style="padding: 0.6rem 0.8rem;">
+            <span class="explorer-icon">${icon}</span>
+            <span style="font-weight: ${item.isDirectory ? '600' : '400'}; color: ${item.isDirectory ? '#f3f4f6' : '#e2e8f0'};">${item.name}</span>
+          </td>
+          <td style="padding: 0.6rem 0.8rem;">
+            <span class="ext-badge ${extClass}">${extLabel}</span>
+          </td>
+          <td style="padding: 0.6rem 0.8rem; color: #94a3b8; font-size: 0.8rem;">${sizeLabel}</td>
+          <td style="padding: 0.6rem 0.8rem; color: #94a3b8; font-size: 0.8rem;">${dateLabel}</td>
+          <td style="padding: 0.6rem 0.8rem; text-align: right;" onclick="event.stopPropagation();">
+            <div style="display: inline-flex; gap: 0.3rem;">
+              ${isTextEditable ? `<button type="button" class="btn-icon" data-action="edit" data-path="${item.path}" title="Edit / View Content">✏️</button>` : ''}
+              ${isImage ? `<button type="button" class="btn-icon" data-action="view-image" data-path="${item.path}" title="Preview Poster / Fanart">👁️</button>` : ''}
+              ${isVtt ? `<button type="button" class="btn-icon" data-action="convert-vtt" data-path="${item.path}" title="Convert this VTT to SRT">🔄</button>` : ''}
+              <button type="button" class="btn-icon btn-icon-danger" data-action="delete" data-path="${item.path}" data-name="${item.name}" data-is-dir="${item.isDirectory}" title="Delete">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    explorerTableBody.innerHTML = rowsHtml;
+
+    // Attach Row and Action handlers
+    explorerTableBody.querySelectorAll('.explorer-item-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const action = row.dataset.action;
+        const target = row.dataset.path;
+        if (action === 'navigate') {
+          loadExplorerPath(target);
+        } else if (action === 'view') {
+          openFileEditor(target);
+        }
+      });
+    });
+
+    explorerTableBody.querySelectorAll('button[data-action="edit"]').forEach(btn => {
+      btn.addEventListener('click', () => openFileEditor(btn.dataset.path));
+    });
+
+    explorerTableBody.querySelectorAll('button[data-action="view-image"]').forEach(btn => {
+      btn.addEventListener('click', () => openImagePreview(btn.dataset.path));
+    });
+
+    explorerTableBody.querySelectorAll('button[data-action="convert-vtt"]').forEach(btn => {
+      btn.addEventListener('click', () => convertSingleVtt(btn.dataset.path));
+    });
+
+    explorerTableBody.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+      btn.addEventListener('click', () => deleteExplorerItem(btn.dataset.path, btn.dataset.name, btn.dataset.isDir === 'true'));
+    });
+  }
+
+  explorerSearchInput?.addEventListener('input', () => {
+    if (currentExplorerItems) {
+      renderExplorerTable(currentExplorerItems, null);
+    }
+  });
+
+  // Open Text File Editor
+  async function openFileEditor(filePath) {
+    activeEditingFilePath = filePath;
+    fileEditorTitle.textContent = `📝 Edit File: ${filePath.split(/[\/\\]/).pop()}`;
+    fileEditorPath.textContent = filePath;
+    fileImagePreviewContainer.style.display = 'none';
+    fileEditorTextareaContainer.style.display = 'block';
+    fileEditorSaveBtn.style.display = 'inline-block';
+    fileEditorContent.value = 'Loading content...';
+    fileEditorModal.style.display = 'flex';
+
+    try {
+      const res = await fetch(`/api/explorer/file?path=${encodeURIComponent(filePath)}`);
+      const data = await res.json();
+      if (data.success) {
+        fileEditorContent.value = data.content;
+      } else {
+        fileEditorContent.value = `Error loading file: ${data.message}`;
+      }
+    } catch (err) {
+      fileEditorContent.value = `Network error: ${err.message}`;
+    }
+  }
+
+  // Open Image Preview
+  function openImagePreview(filePath) {
+    activeEditingFilePath = filePath;
+    fileEditorTitle.textContent = `🖼️ Image Preview: ${filePath.split(/[\/\\]/).pop()}`;
+    fileEditorPath.textContent = filePath;
+    fileImagePreviewContainer.style.display = 'block';
+    fileImagePreview.src = `/api/explorer/file?path=${encodeURIComponent(filePath)}&t=${Date.now()}`;
+    fileEditorTextareaContainer.style.display = 'none';
+    fileEditorSaveBtn.style.display = 'none';
+    fileEditorModal.style.display = 'flex';
+  }
+
+  // Save File Editor Changes
+  fileEditorSaveBtn?.addEventListener('click', async () => {
+    if (!activeEditingFilePath) return;
+    fileEditorSaveBtn.disabled = true;
+    fileEditorSaveBtn.textContent = 'Saving...';
+    try {
+      const res = await fetch('/api/explorer/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: activeEditingFilePath,
+          content: fileEditorContent.value
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('File saved successfully!', 'success');
+        fileEditorModal.style.display = 'none';
+        if (currentExplorerPath) loadExplorerPath(currentExplorerPath);
+      } else {
+        showToast(`Save failed: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error saving file: ${err.message}`, 'error');
+    } finally {
+      fileEditorSaveBtn.disabled = false;
+      fileEditorSaveBtn.textContent = '💾 Save Changes';
+    }
+  });
+
+  fileEditorCloseBtn?.addEventListener('click', () => fileEditorModal.style.display = 'none');
+  fileEditorCancelBtn?.addEventListener('click', () => fileEditorModal.style.display = 'none');
+
+  // Convert Single VTT Subtitle
+  async function convertSingleVtt(vttPath) {
+    try {
+      showToast(`Converting ${vttPath.split(/[\/\\]/).pop()} to .srt...`, 'info');
+      const res = await fetch('/api/tools/convert-subtitles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetPath: currentExplorerPath,
+          force: true
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Converted subtitle to .srt format!', 'success');
+        if (currentExplorerPath) loadExplorerPath(currentExplorerPath);
+      } else {
+        showToast(data.message, 'error');
+      }
+    } catch (err) {
+      showToast(`Error: ${err.message}`, 'error');
+    }
+  }
+
+  // Delete Item in Explorer
+  async function deleteExplorerItem(itemPath, itemName, isDir) {
+    const promptMsg = isDir
+      ? `Ali ste prepričani, da želite trajno izbrisati celotno mapo "${itemName}" in vso njeno vsebino?`
+      : `Ali želite izbrisati datoteko "${itemName}"?`;
+
+    if (!confirm(promptMsg)) return;
+
+    try {
+      const res = await fetch(`/api/explorer/item?path=${encodeURIComponent(itemPath)}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Izbrisano: ${itemName}`, 'success');
+        if (currentExplorerPath) loadExplorerPath(currentExplorerPath);
+      } else {
+        showToast(`Napaka pri brisanju: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Napaka pri brisanju: ${err.message}`, 'error');
+    }
+  }
 
   // Test Auth
   testAuthBtn.addEventListener('click', async () => {

@@ -2,7 +2,7 @@
 
 > **JellySloFlix** is a lightweight, self-hosted web manager, multi-job sync engine, and streaming bridge that seamlessly integrates **SloFlix** media catalog into **Jellyfin** (or Emby/Plex).
 
-It generates TMDB-compliant `.strm` stream files, downloads official **posters**, **fanarts / backdrops**, and **Slovene subtitles (`.sl.vtt`)**, while proxying video streams with full HTTP Byte Range support.
+It generates TMDB-compliant `.strm` stream files, downloads official **posters**, **fanarts / backdrops**, creates Kodi/Jellyfin-compatible **`.nfo` metadata**, and provides both **WebVTT (`.sl.vtt`)** and **SubRip (`.sl.srt`)** subtitles, while proxying video streams with full HTTP Byte Range support.
 
 ---
 
@@ -21,12 +21,17 @@ It generates TMDB-compliant `.strm` stream files, downloads official **posters**
 
 ## ✨ Features
 
-
 - **🌐 Modern Dark-Themed Web Dashboard**: Clean interface to manage jobs, preview syncs, test auth, inspect live logs, and view execution history.
+- **🍿 Jellyfin Auto-Library Refresh**: Automatically triggers Jellyfin API `/Library/Refresh` immediately when new movies or episodes are synced, ensuring newly added content appears in Jellyfin instantly.
+- **📄 Native `.nfo` Metadata Generation**: Generates standard `movie.nfo` and `tvshow.nfo` with Slovene synopses, ratings, genres, and premiere dates so that Jellyfin displays localized metadata without relying on external scrapers.
+- **💬 Dual Subtitles & VTT &rarr; SRT Conversion**:
+  - Automatically converts SloFlix `.sl.vtt` subtitles into standard `.sl.srt` format beside each `.strm` file during sync.
+  - Includes a one-click tool in the Web Manager to batch convert all existing `.vtt` subtitles across all movie and show folders.
+- **📁 Graphical File Explorer**:
+  - Built-in file browser to inspect media directories, view posters/fanart, review and edit `movie.nfo` / `.strm` files directly in the browser, and safely delete items or folders.
 - **📋 Multi-Job Sync Scheduler**:
   - Create multiple independent sync profiles (e.g., *Movies every 24h*, *TV Shows every 8h*, *Kids / Cartoons to custom folder*).
   - Configurable intervals (`Every 1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `24h`, or `Manual`).
-- **💬 Automatic Subtitle Download**: Automatically fetches Slovene `.sl.vtt` subtitles from SloFlix and saves them beside `.strm` files for instant playback in Jellyfin.
 - **🖼️ Posters & Fanart Artwork**: Automatically downloads official TMDB `poster.jpg` and `fanart.jpg` into each movie/show directory.
 - **🔍 Advanced Catalog Filtering & Sorting**:
   - Filter by **Release Year** (`Min Year`), **Rating** (`Min Rating`), and **24 Genre tags** (including `SLOSiNH`, `Animacija`, `Akcija`...).
@@ -50,18 +55,22 @@ JellySloFlix produces the exact folder format required by Jellyfin:
 /DATA/Media/
 ├── MoviesSloFlix/
 │   └── Above the Shadows (2019)/
-│       ├── Above the Shadows (2019).strm
-│       ├── Above the Shadows (2019).sl.vtt   <-- Slovene Subtitles
+│       ├── Above the Shadows (2019).strm     <-- Stream link to Bridge
+│       ├── Above the Shadows (2019).sl.vtt   <-- Slovene WebVTT Subtitles
+│       ├── Above the Shadows (2019).sl.srt   <-- Auto-converted SRT Subtitles
+│       ├── movie.nfo                          <-- Localized Kodi/Jellyfin Metadata
 │       ├── poster.jpg                         <-- High-res Poster
 │       └── fanart.jpg                         <-- Backdrop Fanart
 │
 └── ShowsSloFlix/
     └── Ja, Chef! (2021)/
+        ├── tvshow.nfo                         <-- Series Metadata
         ├── poster.jpg
         ├── fanart.jpg
         ├── Season 01/
         │   ├── Ja, Chef! - S01E01.strm
         │   ├── Ja, Chef! - S01E01.sl.vtt
+        │   ├── Ja, Chef! - S01E01.sl.srt
         │   └── ...
         └── Season 02/
             └── ...

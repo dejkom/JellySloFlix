@@ -3,7 +3,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { SyncEngine } from './sync.js';
+import { SyncEngine, convertAllVttInDirectory, vttToSrt } from './sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,8 +42,10 @@ export class SloFlixBridgeServer {
       username: process.env.SLOFLIX_USERNAME || '',
       password: process.env.SLOFLIX_PASSWORD || '',
       bridgeUrl: process.env.BRIDGE_URL || 'http://localhost:3849',
-
       languagePreference: 'en',
+      jellyfinUrl: process.env.JELLYFIN_URL || '',
+      jellyfinApiKey: process.env.JELLYFIN_API_KEY || '',
+      jellyfinAutoRefresh: true,
       jobs: [
         {
           id: 'job_movies_default',
@@ -217,6 +219,87 @@ export class SloFlixBridgeServer {
 
       this.jobTimers.set(job.id, timer);
     }
+  }
+
+  async triggerJellyfinRefresh() {
+    const jellyfinUrl = (this.config.jellyfinUrl || '').replace(/\/+$/, '');
+    const apiKey = this.config.jellyfinApiKey || '';
+
+    if (!jellyfinUrl) {
+      return { success: false, message: 'Jellyfin URL is not configured.' };
+    }
+
+    try {
+      this.appendLog(`🔄 [Jellyfin] Sending library refresh request to ${jellyfinUrl}...`);
+      const refreshUrl = `${jellyfinUrl}/Library/Refresh${apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : ''}`;
+      
+      const headers = {
+        'User-Agent': 'JellySloFlix-Bridge/1.0',
+        'Accept': 'application/json, text/plain, */*'
+      };
+      if (apiKey) {
+        headers['X-Emby-Token'] = apiKey;
+        headers['X-MediaBrowser-Token'] = apiKey;
+      }
+
+      const res = await fetch(refreshUrl, {
+        method: 'POST',
+        headers
+      });
+
+      if (res.ok || res.status === 204 || res.status === 200) {
+        this.appendLog(`✅ [Jellyfin] Library refresh triggered successfully! (HTTP ${res.status})`);
+        return { success: true, message: `Jellyfin library refresh triggered! (HTTP ${res.status})` };
+      } else {
+        const errorText = await res.text().catch(() => '');
+        this.appendLog(`⚠️ [Jellyfin] Refresh request returned status ${res.status}: ${errorText || res.statusText}`);
+        return { success: false, message: `Jellyfin returned status ${res.status}: ${errorText || res.statusText}` };
+      }
+    } catch (err) {
+      this.appendLog(`❌ [Jellyfin] Failed to trigger library refresh: ${err.message}`);
+      return { success: false, message: err.message };
+    }
+  }
+
+  async triggerSubtitleConversion(targetPath = null, force = false) {
+    const directoriesToScan = [];
+
+    if (targetPath && typeof targetPath === 'string') {
+      directoriesToScan.push(targetPath);
+    } else if (Array.isArray(this.config.jobs)) {
+      for (const job of this.config.jobs) {
+        if (job.targetDir && !directoriesToScan.includes(job.targetDir)) {
+          directoriesToScan.push(job.targetDir);
+        }
+      }
+    }
+
+    if (directoriesToScan.length === 0) {
+      return { success: false, message: 'No target directories found to scan for subtitles.' };
+    }
+
+    this.appendLog(`\n======================================================`);
+    this.appendLog(`🔄 Starting Subtitle Conversion (VTT -> SRT)...`);
+    this.appendLog(`📂 Directories: ${directoriesToScan.join(', ')}`);
+    this.appendLog(`======================================================`);
+
+    const totalStats = { found: 0, converted: 0, skipped: 0, errors: 0 };
+
+    for (const dir of directoriesToScan) {
+      if (fs.existsSync(dir)) {
+        this.appendLog(`🔍 Scanning directory: ${dir}`);
+        const stats = convertAllVttInDirectory(dir, force, (msg) => this.appendLog(`  💬 ${msg}`));
+        totalStats.found += stats.found;
+        totalStats.converted += stats.converted;
+        totalStats.skipped += stats.skipped;
+        totalStats.errors += stats.errors;
+      } else {
+        this.appendLog(`⚠️ Directory not found on disk: ${dir}`);
+      }
+    }
+
+    this.appendLog(`✅ Subtitle conversion complete! (${totalStats.found} found, ${totalStats.converted} converted, ${totalStats.skipped} skipped, ${totalStats.errors} errors)`);
+    return { success: true, stats: totalStats };
   }
 
   async login(username = null, password = null) {
@@ -413,9 +496,15 @@ export class SloFlixBridgeServer {
     const moviesDir = job.mediaTypeFilter === 'shows' ? null : job.targetDir;
     const showsDir = job.mediaTypeFilter === 'movies' ? null : job.targetDir;
 
+    // Ensure auth token is available if credentials exist
+    if (!this.token && this.config.username && this.config.password) {
+      await this.login();
+    }
+
     const engine = new SyncEngine({
       apiUrl: this.config.apiUrl,
       bridgeUrl: this.config.bridgeUrl,
+      authToken: this.token,
       outputDir: job.targetDir,
       moviesDir: moviesDir,
       showsDir: showsDir,
@@ -456,6 +545,15 @@ export class SloFlixBridgeServer {
       });
 
       this.appendLog(`✅ Job "${job.name}" finished in ${durationSec}s! (+${engine.stats.moviesCreated} movies, +${engine.stats.episodesCreated} episodes, ${skippedCount} skipped)`);
+
+      // Trigger Jellyfin Refresh if new items were created and Jellyfin refresh is enabled
+      if (createdCount > 0 && this.config.jellyfinAutoRefresh && this.config.jellyfinUrl) {
+        this.appendLog(`🔄 [Jellyfin] New items found (${createdCount}). Triggering automatic library refresh...`);
+        this.triggerJellyfinRefresh().catch(err => {
+          this.appendLog(`⚠️ [Jellyfin] Auto-refresh error: ${err.message}`);
+        });
+      }
+
       return { success: true };
     } catch (err) {
       this.addHistoryEntry({
@@ -538,6 +636,9 @@ export class SloFlixBridgeServer {
               this.config.bridgeUrl = updated.bridgeUrl ?? this.config.bridgeUrl;
               this.config.port = updated.port ?? this.config.port;
               this.config.languagePreference = updated.languagePreference ?? this.config.languagePreference;
+              this.config.jellyfinUrl = updated.jellyfinUrl !== undefined ? updated.jellyfinUrl : this.config.jellyfinUrl;
+              this.config.jellyfinApiKey = updated.jellyfinApiKey !== undefined ? updated.jellyfinApiKey : this.config.jellyfinApiKey;
+              this.config.jellyfinAutoRefresh = updated.jellyfinAutoRefresh !== undefined ? !!updated.jellyfinAutoRefresh : this.config.jellyfinAutoRefresh;
               this.saveConfig();
 
               res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -547,6 +648,244 @@ export class SloFlixBridgeServer {
               res.end(JSON.stringify({ success: false, message: err.message }));
             }
           });
+          return;
+        }
+
+        // Jellyfin Connection Test & Manual Refresh
+        if (reqUrl.pathname === '/api/jellyfin/test' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              if (payload.jellyfinUrl !== undefined) this.config.jellyfinUrl = payload.jellyfinUrl;
+              if (payload.jellyfinApiKey !== undefined) this.config.jellyfinApiKey = payload.jellyfinApiKey;
+              const result = await this.triggerJellyfinRefresh();
+              res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+          });
+          return;
+        }
+
+        // Subtitle Mass Conversion Tool (VTT -> SRT)
+        if (reqUrl.pathname === '/api/tools/convert-subtitles' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', async () => {
+            try {
+              const payload = JSON.parse(body || '{}');
+              const targetPath = payload.targetPath || null;
+              const force = !!payload.force;
+              const result = await this.triggerSubtitleConversion(targetPath, force);
+              res.writeHead(result.success ? 200 : 400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+          });
+          return;
+        }
+
+        // ----------------------------------------------------
+        // Graphical File Explorer Endpoints
+        // ----------------------------------------------------
+        if (reqUrl.pathname === '/api/explorer/roots' && req.method === 'GET') {
+          // Return list of accessible directories based on jobs and defaults
+          const roots = new Set();
+          if (process.env.MOVIES_DIR) roots.add(path.resolve(process.env.MOVIES_DIR));
+          if (process.env.SHOWS_DIR) roots.add(path.resolve(process.env.SHOWS_DIR));
+          if (Array.isArray(this.config.jobs)) {
+            for (const j of this.config.jobs) {
+              if (j.targetDir) roots.add(path.resolve(j.targetDir));
+            }
+          }
+          if (roots.size === 0) {
+            roots.add(path.resolve(__dirname, 'media'));
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, roots: Array.from(roots) }));
+          return;
+        }
+
+        if (reqUrl.pathname === '/api/explorer/tree' && req.method === 'GET') {
+          const reqPath = reqUrl.searchParams.get('path');
+          if (!reqPath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'Path parameter is required' }));
+            return;
+          }
+
+          const absolutePath = path.resolve(reqPath);
+          if (!fs.existsSync(absolutePath)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'Directory does not exist' }));
+            return;
+          }
+
+          try {
+            const stat = fs.statSync(absolutePath);
+            if (!stat.isDirectory()) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: 'Target is not a directory' }));
+              return;
+            }
+
+            const entries = fs.readdirSync(absolutePath, { withFileTypes: true });
+            const items = entries.map(entry => {
+              const itemPath = path.join(absolutePath, entry.name);
+              let itemStat = null;
+              try {
+                itemStat = fs.statSync(itemPath);
+              } catch {}
+
+              const isDir = entry.isDirectory();
+              const ext = isDir ? '' : path.extname(entry.name).toLowerCase();
+              
+              let childCount = 0;
+              if (isDir) {
+                try {
+                  childCount = fs.readdirSync(itemPath).length;
+                } catch {}
+              }
+
+              return {
+                name: entry.name,
+                path: itemPath,
+                isDirectory: isDir,
+                sizeBytes: itemStat ? itemStat.size : 0,
+                mtime: itemStat ? itemStat.mtime.toISOString() : null,
+                ext: ext,
+                childCount: childCount
+              };
+            });
+
+            // Sort directories first, then alphabetically
+            items.sort((a, b) => {
+              if (a.isDirectory && !b.isDirectory) return -1;
+              if (!a.isDirectory && b.isDirectory) return 1;
+              return a.name.localeCompare(b.name, 'sl', { sensitivity: 'base' });
+            });
+
+            const parentPath = path.dirname(absolutePath);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              currentPath: absolutePath,
+              parentPath: parentPath !== absolutePath ? parentPath : null,
+              items
+            }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: err.message }));
+          }
+          return;
+        }
+
+        // Read or Serve File Content (.nfo, .strm, .srt, .vtt, images)
+        if (reqUrl.pathname === '/api/explorer/file' && req.method === 'GET') {
+          const filePath = reqUrl.searchParams.get('path');
+          if (!filePath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'File path required' }));
+            return;
+          }
+
+          const absolutePath = path.resolve(filePath);
+          if (!fs.existsSync(absolutePath)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'File not found' }));
+            return;
+          }
+
+          const ext = path.extname(absolutePath).toLowerCase();
+
+          // Image handling (poster.jpg, fanart.jpg)
+          if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) {
+            const contentType = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
+            return this.serveStaticFile(res, absolutePath, contentType);
+          }
+
+          // Text-based files (.nfo, .strm, .srt, .vtt, .txt, .json)
+          try {
+            const content = fs.readFileSync(absolutePath, 'utf8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              path: absolutePath,
+              filename: path.basename(absolutePath),
+              ext,
+              content
+            }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: err.message }));
+          }
+          return;
+        }
+
+        // Save edited file (.nfo, .strm, .srt, .vtt)
+        if (reqUrl.pathname === '/api/explorer/file' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', () => {
+            try {
+              const { filePath, content } = JSON.parse(body || '{}');
+              if (!filePath || content === undefined) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, message: 'filePath and content are required' }));
+                return;
+              }
+
+              const absolutePath = path.resolve(filePath);
+              fs.writeFileSync(absolutePath, content, 'utf8');
+              this.appendLog(`✏️ [Explorer] Updated file content: ${path.basename(absolutePath)}`);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: true, message: 'File saved successfully' }));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+          });
+          return;
+        }
+
+        // Delete File or Directory
+        if (reqUrl.pathname === '/api/explorer/item' && req.method === 'DELETE') {
+          const itemPath = reqUrl.searchParams.get('path');
+          if (!itemPath) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'path is required' }));
+            return;
+          }
+
+          const absolutePath = path.resolve(itemPath);
+          if (!fs.existsSync(absolutePath)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: 'Item not found' }));
+            return;
+          }
+
+          try {
+            const stat = fs.statSync(absolutePath);
+            if (stat.isDirectory()) {
+              fs.rmSync(absolutePath, { recursive: true, force: true });
+              this.appendLog(`🗑️ [Explorer] Deleted directory: ${path.basename(absolutePath)}`);
+            } else {
+              fs.unlinkSync(absolutePath);
+              this.appendLog(`🗑️ [Explorer] Deleted file: ${path.basename(absolutePath)}`);
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: 'Item deleted successfully' }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, message: err.message }));
+          }
           return;
         }
 
