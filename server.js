@@ -3,7 +3,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { SyncEngine, convertAllVttInDirectory, vttToSrt } from './sync.js';
+import { SyncEngine, convertAllVttInDirectory, vttToSrt, generateMovieNfo, generateShowNfo, sanitizeName, extractYear } from './sync.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -578,6 +578,200 @@ export class SloFlixBridgeServer {
     }
   }
 
+  async refreshDirectoryMetadata(folderPath) {
+    const absolutePath = path.resolve(folderPath);
+    if (!fs.existsSync(absolutePath)) {
+      return { success: false, message: 'Directory does not exist' };
+    }
+
+    this.appendLog(`🖼️ [Explorer] Refreshing metadata for: ${path.basename(absolutePath)}...`);
+
+    // 1. Scan directory for .strm files to extract SloFlix media ID
+    let mediaId = null;
+    let isShow = false;
+
+    const findStrmFiles = (dir) => {
+      let strmList = [];
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const ent of entries) {
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) {
+          strmList = strmList.concat(findStrmFiles(full));
+        } else if (ent.isFile() && ent.name.endsWith('.strm')) {
+          strmList.push(full);
+        }
+      }
+      return strmList;
+    };
+
+    const strmFiles = findStrmFiles(absolutePath);
+    for (const strmFile of strmFiles) {
+      try {
+        const content = fs.readFileSync(strmFile, 'utf8');
+        const match = content.match(/\/play\/([0-9a-zA-Z_-]+)/);
+        if (match) {
+          mediaId = match[1];
+          break;
+        }
+      } catch {}
+    }
+
+    // Check if it's a show (contains Season XX folders or multiple strms)
+    const subEntries = fs.readdirSync(absolutePath, { withFileTypes: true });
+    if (subEntries.some(e => e.isDirectory() && e.name.toLowerCase().startsWith('season')) || fs.existsSync(path.join(absolutePath, 'tvshow.nfo'))) {
+      isShow = true;
+    }
+
+    if (!this.token) {
+      const auth = await this.login();
+      if (!auth.success) return { success: false, message: `Auth error: ${auth.message}` };
+    }
+
+    // 2. Fetch single media details from SloFlix API
+    let mediaData = null;
+    if (mediaId) {
+      try {
+        const singleUrl = `${this.config.apiUrl}/v1/media/single/${mediaId}?dont_count_view=true`;
+        let res = await fetch(singleUrl, {
+          headers: {
+            ...this.defaultHeaders,
+            Authorization: `Bearer ${this.token}`
+          }
+        });
+        if (res.status === 401) {
+          await this.login();
+          res = await fetch(singleUrl, {
+            headers: {
+              ...this.defaultHeaders,
+              Authorization: `Bearer ${this.token}`
+            }
+          });
+        }
+        const parsed = await res.json();
+        mediaData = parsed.data || parsed;
+      } catch (err) {
+        this.appendLog(`⚠️ Error fetching media ID ${mediaId}: ${err.message}`);
+      }
+    }
+
+    // Fallback: search by folder title
+    if (!mediaData) {
+      const folderName = path.basename(absolutePath);
+      const cleanTitle = folderName.replace(/\s*\(\d{4}\).*$/, '').trim();
+      try {
+        const searchUrl = `${this.config.apiUrl}/v1/media/search?keyword=${encodeURIComponent(cleanTitle)}`;
+        const res = await fetch(searchUrl, {
+          headers: {
+            ...this.defaultHeaders,
+            Authorization: `Bearer ${this.token}`
+          }
+        });
+        const parsed = await res.json();
+        const results = parsed.data || parsed.results || [];
+        if (results.length > 0) {
+          mediaData = results[0];
+          mediaId = mediaData.media_id || mediaData.id;
+        }
+      } catch {}
+    }
+
+    if (!mediaData) {
+      return { success: false, message: 'Could not match directory with SloFlix catalog' };
+    }
+
+    const title = mediaData.media_name || mediaData.title || path.basename(absolutePath);
+    let refreshedItems = [];
+
+    // 3. Re-generate NFO
+    try {
+      if (isShow || mediaData.media_type === 'series') {
+        const nfoContent = generateShowNfo(mediaData, title);
+        fs.writeFileSync(path.join(absolutePath, 'tvshow.nfo'), nfoContent, 'utf8');
+        refreshedItems.push('tvshow.nfo');
+      } else {
+        const nfoContent = generateMovieNfo(mediaData, title);
+        fs.writeFileSync(path.join(absolutePath, 'movie.nfo'), nfoContent, 'utf8');
+        refreshedItems.push('movie.nfo');
+      }
+    } catch (err) {
+      this.appendLog(`⚠️ Error saving NFO: ${err.message}`);
+    }
+
+    // Helper for file download
+    const downloadHelper = async (url, dest) => {
+      if (!url || !url.startsWith('http')) return false;
+      try {
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (!res.ok) return false;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (dest.endsWith('.vtt') || dest.endsWith('.srt')) {
+          const str = buf.slice(0, 50).toString('utf8');
+          if (str.includes('<html') || str.includes('<!DOCTYPE')) return false;
+        }
+        fs.writeFileSync(dest, buf);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // 4. Re-download Poster & Fanart
+    const posterUrl = mediaData.media_thumbnail_url || mediaData.thumbnail;
+    const fanartUrl = mediaData.media_banner_url || mediaData.banner;
+    if (posterUrl && await downloadHelper(posterUrl, path.join(absolutePath, 'poster.jpg'))) {
+      refreshedItems.push('poster.jpg');
+    }
+    if (fanartUrl && await downloadHelper(fanartUrl, path.join(absolutePath, 'fanart.jpg'))) {
+      refreshedItems.push('fanart.jpg');
+    }
+
+    // 5. Re-download Subtitles if movie
+    if (!isShow && mediaId) {
+      try {
+        const singleUrl = `${this.config.apiUrl}/v1/media/single/${mediaId}?dont_count_view=true`;
+        const res = await fetch(singleUrl, {
+          headers: { ...this.defaultHeaders, Authorization: `Bearer ${this.token}` }
+        });
+        const single = await res.json();
+        const singleData = single.data || single || {};
+        const sources = singleData.media_sources || singleData.sources || [];
+        for (const src of sources) {
+          const subLoc = src.subtitle_location || src.subtitles || src.subtitle;
+          if (subLoc) {
+            const subUrl = subLoc.startsWith('http') ? subLoc : `https://sloflix.com/subtitles/${subLoc}`;
+            const baseName = path.basename(absolutePath);
+            const subVtt = path.join(absolutePath, `${baseName}.sl.vtt`);
+            const subSrt = path.join(absolutePath, `${baseName}.sl.srt`);
+            if (await downloadHelper(subUrl, subVtt)) {
+              refreshedItems.push(`${baseName}.sl.vtt`);
+              try {
+                const vttContent = fs.readFileSync(subVtt, 'utf8');
+                const srtContent = vttToSrt(vttContent);
+                if (srtContent) {
+                  fs.writeFileSync(subSrt, srtContent, 'utf8');
+                  refreshedItems.push(`${baseName}.sl.srt`);
+                }
+              } catch {}
+            }
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    // 6. Trigger Jellyfin refresh if configured
+    if (this.config.jellyfinAutoRefresh && this.config.jellyfinUrl) {
+      this.triggerJellyfinRefresh().catch(() => {});
+    }
+
+    this.appendLog(`✅ [Explorer] Successfully refreshed metadata for "${title}": ${refreshedItems.join(', ')}`);
+    return {
+      success: true,
+      message: `Metadata refreshed: ${refreshedItems.join(', ')}`,
+      refreshedItems
+    };
+  }
+
   serveStaticFile(res, filePath, contentType) {
     fs.readFile(filePath, (err, content) => {
       if (err) {
@@ -891,6 +1085,30 @@ export class SloFlixBridgeServer {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: false, message: err.message }));
           }
+          return;
+        }
+
+        // Refresh Metadata for a Movie or TV Show Directory
+        if (reqUrl.pathname === '/api/explorer/refresh-metadata' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', async () => {
+            try {
+              const { folderPath } = JSON.parse(body || '{}');
+              if (!folderPath) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: false, message: 'folderPath is required' }));
+                return;
+              }
+
+              const result = await this.refreshDirectoryMetadata(folderPath);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+          });
           return;
         }
 

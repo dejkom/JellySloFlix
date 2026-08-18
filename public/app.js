@@ -714,6 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <td style="padding: 0.6rem 0.8rem; color: #94a3b8; font-size: 0.8rem;">${dateLabel}</td>
           <td style="padding: 0.6rem 0.8rem; text-align: right;" onclick="event.stopPropagation();">
             <div style="display: inline-flex; gap: 0.3rem;">
+              ${item.isDirectory ? `<button type="button" class="btn-icon" data-action="refresh-meta" data-path="${item.path}" data-name="${item.name}" title="Re-download metadata (NFO, Poster, Fanart, Subtitles)">🖼️</button>` : ''}
               ${isTextEditable ? `<button type="button" class="btn-icon" data-action="edit" data-path="${item.path}" title="Edit / View Content">✏️</button>` : ''}
               ${isImage ? `<button type="button" class="btn-icon" data-action="view-image" data-path="${item.path}" title="Preview Poster / Fanart">👁️</button>` : ''}
               ${isVtt ? `<button type="button" class="btn-icon" data-action="convert-vtt" data-path="${item.path}" title="Convert this VTT to SRT">🔄</button>` : ''}
@@ -737,6 +738,10 @@ document.addEventListener('DOMContentLoaded', () => {
           openFileEditor(target);
         }
       });
+    });
+
+    explorerTableBody.querySelectorAll('button[data-action="refresh-meta"]').forEach(btn => {
+      btn.addEventListener('click', () => refreshFolderMetadata(btn.dataset.path, btn.dataset.name, btn));
     });
 
     explorerTableBody.querySelectorAll('button[data-action="edit"]').forEach(btn => {
@@ -855,11 +860,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Refresh Metadata for a folder (NFO, Poster, Fanart, Subtitles)
+  async function refreshFolderMetadata(folderPath, folderName, triggerBtn) {
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = '⏳';
+    }
+    showToast(`Refreshing metadata for "${folderName}"...`, 'info');
+
+    try {
+      const res = await fetch('/api/explorer/refresh-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✅ ${data.message}`, 'success');
+        if (currentExplorerPath) loadExplorerPath(currentExplorerPath);
+      } else {
+        showToast(`Error: ${data.message}`, 'error');
+      }
+    } catch (err) {
+      showToast(`Error refreshing metadata: ${err.message}`, 'error');
+    } finally {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = '🖼️';
+      }
+    }
+  }
+
   // Delete Item in Explorer
   async function deleteExplorerItem(itemPath, itemName, isDir) {
     const promptMsg = isDir
-      ? `Ali ste prepričani, da želite trajno izbrisati celotno mapo "${itemName}" in vso njeno vsebino?`
-      : `Ali želite izbrisati datoteko "${itemName}"?`;
+      ? `Are you sure you want to permanently delete directory "${itemName}" and all its contents?`
+      : `Are you sure you want to delete file "${itemName}"?`;
 
     if (!confirm(promptMsg)) return;
 
@@ -869,13 +905,13 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`Izbrisano: ${itemName}`, 'success');
+        showToast(`Deleted: ${itemName}`, 'success');
         if (currentExplorerPath) loadExplorerPath(currentExplorerPath);
       } else {
-        showToast(`Napaka pri brisanju: ${data.message}`, 'error');
+        showToast(`Error deleting: ${data.message}`, 'error');
       }
     } catch (err) {
-      showToast(`Napaka pri brisanju: ${err.message}`, 'error');
+      showToast(`Error deleting: ${err.message}`, 'error');
     }
   }
 
