@@ -6,7 +6,21 @@ It generates TMDB-compliant `.strm` stream files, downloads official **posters**
 
 ---
 
+## 📸 Screenshots
+
+### 1. Dashboard & Multi-Job Schedulers with Execution History
+![Dashboard](docs/screenshots/dashboard.png)
+
+### 2. Job Configuration & Custom Filtering
+![Edit Job](docs/screenshots/edit_job.png)
+
+### 3. Sync Preview & Item Selection
+![Preview Modal](docs/screenshots/preview_modal.png)
+
+---
+
 ## ✨ Features
+
 
 - **🌐 Modern Dark-Themed Web Dashboard**: Clean interface to manage jobs, preview syncs, test auth, inspect live logs, and view execution history.
 - **📋 Multi-Job Sync Scheduler**:
