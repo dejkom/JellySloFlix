@@ -473,7 +473,7 @@ export class SloFlixBridgeServer {
     upstreamReq.end();
   }
 
-  async runJob(jobId, force = false, triggerType = 'manual') {
+  async runJob(jobId, force = false, triggerType = 'manual', targetItemIds = null) {
     if (this.isSyncing) {
       this.appendLog(`⚠️ Cannot run job "${jobId}" - another sync is already in progress!`);
       return { success: false, message: 'Another sync is already in progress' };
@@ -490,7 +490,11 @@ export class SloFlixBridgeServer {
     this.appendLog(`\n======================================================`);
     this.appendLog(`🚀 Starting Sync Job: "${job.name}" (${triggerType.toUpperCase()})`);
     this.appendLog(`📂 Target Directory: ${job.targetDir}`);
-    this.appendLog(`🎬 Content Scope: ${job.mediaTypeFilter.toUpperCase()} | Limit: ${job.itemLimit || 'All'}`);
+    if (targetItemIds && Array.isArray(targetItemIds) && targetItemIds.length > 0) {
+      this.appendLog(`🎯 Selective Sync: ${targetItemIds.length} chosen items`);
+    } else {
+      this.appendLog(`🎬 Content Scope: ${job.mediaTypeFilter.toUpperCase()} | Limit: ${job.itemLimit || 'All'}`);
+    }
     this.appendLog(`======================================================`);
 
     const moviesDir = job.mediaTypeFilter === 'shows' ? null : job.targetDir;
@@ -514,6 +518,7 @@ export class SloFlixBridgeServer {
       selectedGenres: job.selectedGenres || [],
       minYear: job.minYear || null,
       minRating: job.minRating || null,
+      targetItemIds: targetItemIds,
       force: force,
       dryRun: false,
       username: this.config.username,
@@ -964,7 +969,7 @@ export class SloFlixBridgeServer {
           return;
         }
 
-        // Run specific job manually
+        // Run specific job manually (full or selective items)
         if (reqUrl.pathname.match(/^\/api\/jobs\/([^/]+)\/run$/) && req.method === 'POST') {
           const jobId = reqUrl.pathname.match(/^\/api\/jobs\/([^/]+)\/run$/)[1];
           let body = '';
@@ -972,7 +977,8 @@ export class SloFlixBridgeServer {
           req.on('end', () => {
             const parsed = JSON.parse(body || '{}');
             const force = !!parsed.force;
-            this.runJob(jobId, force, 'manual');
+            const targetItemIds = Array.isArray(parsed.targetItemIds) ? parsed.targetItemIds : null;
+            this.runJob(jobId, force, targetItemIds ? 'selective' : 'manual', targetItemIds);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, message: `Started job "${jobId}"` }));
           });
