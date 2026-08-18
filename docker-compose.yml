@@ -1,0 +1,29 @@
+services:
+  jellysloflix:
+    container_name: jellysloflix
+    image: jellysloflix:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3849:3849"
+    environment:
+      - PORT=3849
+      - CONFIG_PATH=/config/config.json
+      - MOVIES_DIR=/media/MoviesSloFlix
+      - SHOWS_DIR=/media/ShowsSloFlix
+      - BRIDGE_URL=http://jellysloflix:3849
+      - SLOFLIX_USERNAME=your_email@example.com
+      - SLOFLIX_PASSWORD=your_sloflix_password
+    volumes:
+      # Persistent config storage
+      - /DATA/AppData/jellysloflix/config:/config
+      # Same host media path as Jellyfin
+      - /DATA/Media:/media
+    networks:
+      - deanNetwork
+
+networks:
+  deanNetwork:
+    external: true

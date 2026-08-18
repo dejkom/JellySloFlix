@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JellySloFlix - Multi-Job Sync & Stream Bridge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-badge">JSF</div>
+        <div>
+          <h1>JellySloFlix</h1>
+          <span class="subtitle">Multi-Job Sync Engine & Stream Bridge for Jellyfin</span>
+        </div>
+      </div>
+      <div class="status-indicator">
+        <span class="status-dot" id="server-status-dot"></span>
+        <span id="server-status-text">Bridge Active</span>
+      </div>
+    </header>
+
+    <!-- Global Settings Section (Collapsible / Compact) -->
+    <section class="card settings-card">
+      <div class="card-header">
+        <div>
+          <h2>🔐 SloFlix Account & Bridge Settings</h2>
+          <p>Global credentials and stream proxy configuration for Jellyfin.</p>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" id="toggle-settings-btn">👁️ Show / Hide Settings</button>
+      </div>
+
+      <form id="global-settings-form" style="display: none;">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="username">Email / Username</label>
+            <input type="text" id="username" name="username" required autocomplete="username" placeholder="user@example.com" />
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="••••••••" />
+          </div>
+          <div class="form-group">
+            <label for="bridgeUrl">Bridge URL in .strm</label>
+            <input type="text" id="bridgeUrl" name="bridgeUrl" required placeholder="http://jellysloflix:3849 or http://192.168.1.100:3849" />
+          </div>
+          <div class="form-group">
+            <label for="port">Port</label>
+            <input type="number" id="port" name="port" required value="3849" />
+          </div>
+        </div>
+        <div class="form-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+          <button type="submit" class="btn btn-primary btn-sm" id="save-settings-btn">💾 Save Credentials</button>
+          <button type="button" class="btn btn-outline btn-sm" id="test-auth-btn">🔐 Test Auth</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Multi-Job Profiles Section -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>📋 Synchronization Jobs & Schedulers</h2>
+          <p>Configure multiple independent sync profiles with custom schedules, target folders, and filters.</p>
+        </div>
+        <button type="button" class="btn btn-success" id="create-job-btn">➕ Create New Sync Job</button>
+      </div>
+
+      <div class="jobs-grid" id="jobs-grid-container">
+        <!-- Dynamically rendered Job Cards -->
+      </div>
+    </section>
+
+    <!-- Live Monitor & Job History -->
+    <section class="card">
+      <div class="terminal-container">
+        <div class="terminal-header">
+          <div class="terminal-tabs">
+            <button type="button" class="tab-btn active" id="tab-sync-logs">Live Sync Logs</button>
+            <button type="button" class="tab-btn" id="tab-bridge-logs">Bridge Stream Logs</button>
+            <button type="button" class="tab-btn" id="tab-job-history">📜 Job Execution History</button>
+          </div>
+          <span class="live-tag" id="sync-running-tag" style="display:none;">SYNCING IN PROGRESS...</span>
+        </div>
+        <pre class="terminal-output" id="log-output">System initialized. Click "Run Now" on any job to start synchronization.</pre>
+        <pre class="terminal-output" id="bridge-log-output" style="display:none; color: #60a5fa;">Bridge server ready. Waiting for playback requests from Jellyfin / VLC...</pre>
+        <div id="history-container" style="display: none; background: #0a0d14; max-height: 350px; overflow-y: auto; padding: 0.75rem;">
+          <div id="history-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
+            <!-- Dynamically populated history entries -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Create / Edit Job Modal -->
+    <div id="job-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h3 id="job-modal-title">⚙️ Configure Sync Job</h3>
+            <span class="subtitle">Define target media folder, schedule interval, and catalog filters.</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="job-modal-close-btn">&times;</button>
+        </div>
+
+        <form id="job-form">
+          <div class="modal-body">
+            <input type="hidden" id="job-id" name="id" />
+
+            <div class="form-row">
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="job-name">Job Name</label>
+                <input type="text" id="job-name" name="name" required placeholder="e.g. 🎬 Movies Daily 24h or 📺 Cartoons" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="job-target-dir">Target Directory (Host / Container Path)</label>
+                <input type="text" id="job-target-dir" name="targetDir" required placeholder="e.g. /media/MoviesSloFlix or /media/ShowsSloFlix" />
+              </div>
+              <div class="form-group">
+                <label for="job-schedule">Auto-Sync Schedule</label>
+                <select id="job-schedule" name="schedule">
+                  <option value="disabled">Disabled (Manual Run Only)</option>
+                  <option value="every_1h">Every 1 Hour</option>
+                  <option value="every_2h">Every 2 Hours</option>
+                  <option value="every_4h">Every 4 Hours</option>
+                  <option value="every_6h">Every 6 Hours</option>
+                  <option value="every_8h">Every 8 Hours</option>
+                  <option value="every_12h">Every 12 Hours</option>
+                  <option value="every_24h">Every 24 Hours (Daily)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="job-media-type">Content Scope</label>
+                <select id="job-media-type" name="mediaTypeFilter">
+                  <option value="all">Both (Movies & TV Series)</option>
+                  <option value="movies">Movies Only</option>
+                  <option value="shows">TV Series / Shows Only</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="job-sort-by">Razvrsti po (Sort By)</label>
+                <select id="job-sort-by" name="sortBy">
+                  <option value="1">Nazadnje dodano (Recently Added)</option>
+                  <option value="4">Leto: najprej novejše (Year: Newest First)</option>
+                  <option value="3">Najboljša ocena (Highest Rating)</option>
+                  <option value="6">Najbolj gledano (Most Popular)</option>
+                  <option value="5">Leto: najprej starejše (Year: Oldest First)</option>
+                  <option value="2">Najprej dodano (Oldest Added)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="job-item-limit">Item Limit (0 = All ~2,000)</label>
+                <input type="number" id="job-item-limit" name="itemLimit" min="0" max="5000" placeholder="0 (All)" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="job-min-year">Minimum Release Year</label>
+                <input type="number" id="job-min-year" name="minYear" min="1900" max="2030" placeholder="e.g. 2015 (Optional)" />
+              </div>
+              <div class="form-group">
+                <label for="job-min-rating">Minimum Rating (0 - 10)</label>
+                <input type="number" id="job-min-rating" name="minRating" min="0" max="10" step="0.5" placeholder="e.g. 7.0 (Optional)" />
+              </div>
+              <div class="form-group">
+                <label for="job-naming">Naming Scheme</label>
+                <select id="job-naming" name="languagePreference">
+                  <option value="en">English First (Best for TMDB/Jellyfin)</option>
+                  <option value="dual">Dual Naming (Slovene - English)</option>
+                  <option value="sl">Slovene Only</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Genre Checklist Filter -->
+            <div class="form-group">
+              <div class="genre-header-row">
+                <label>Genre & Tag Filter</label>
+                <div class="genre-quick-actions">
+                  <button type="button" class="btn-text" id="genre-select-all">Select All</button>
+                  <span>•</span>
+                  <button type="button" class="btn-text" id="genre-clear-all">Clear All</button>
+                  <span>•</span>
+                  <button type="button" class="btn-text" id="genre-slo-only">🇸🇮 Slovene & SLOSiNH</button>
+                </div>
+              </div>
+              <div class="genre-grid" id="genre-checkbox-container">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="job-modal-cancel-btn">Cancel</button>
+            <button type="button" class="btn btn-info" id="job-preview-btn">🔍 Preview Matching</button>
+            <button type="submit" class="btn btn-primary" id="job-save-btn">💾 Save Sync Job</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div id="preview-modal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h3 id="preview-title">🔍 Sync Preview</h3>
+            <span class="subtitle" id="preview-subtitle">Calculating matching media items...</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="preview-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="preview-filters-summary" id="preview-summary-tags"></div>
+          <div class="preview-table-container">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Title (Slovene / EN)</th>
+                  <th>Year</th>
+                  <th>Rating</th>
+                  <th>Genres / Tags</th>
+                  <th>Target Folder</th>
+                </tr>
+              </thead>
+              <tbody id="preview-items-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="preview-cancel-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

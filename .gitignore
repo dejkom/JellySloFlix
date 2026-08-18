@@ -1,0 +1,10 @@
+node_modules/
+config.json
+sync_history.json
+*.log
+media/
+test_media*/
+local_test*/
+.DS_Store
+Thumbs.db
+.env
