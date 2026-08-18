@@ -616,7 +616,9 @@ export class SloFlixBridgeServer {
       } catch {}
     }
 
-    // Check if it's a show (contains Season XX folders or multiple strms)
+    // Check if it's a show (contains Season XX folders or multiple strms or tvshow.nfo)
+    const folderName = path.basename(absolutePath);
+    const cleanFolderTitle = folderName.replace(/\s*\(\d{4}\).*$/, '').trim();
     const subEntries = fs.readdirSync(absolutePath, { withFileTypes: true });
     if (subEntries.some(e => e.isDirectory() && e.name.toLowerCase().startsWith('season')) || fs.existsSync(path.join(absolutePath, 'tvshow.nfo'))) {
       isShow = true;
@@ -629,7 +631,30 @@ export class SloFlixBridgeServer {
 
     // 2. Fetch single media details from SloFlix API
     let mediaData = null;
-    if (mediaId) {
+
+    // For TV series, always prioritize searching by the series folder name
+    // because an episode's single media endpoint returns "Epizoda" as the media_name!
+    if (isShow) {
+      try {
+        const searchUrl = `${this.config.apiUrl}/v1/media/search?keyword=${encodeURIComponent(cleanFolderTitle)}`;
+        const res = await fetch(searchUrl, {
+          headers: {
+            ...this.defaultHeaders,
+            Authorization: `Bearer ${this.token}`
+          }
+        });
+        const parsed = await res.json();
+        const results = parsed.data || parsed.results || [];
+        // Match series
+        const matchedSeries = results.find(r => r.media_type === 2 || r.type === 'series' || r.type === 'show') || results[0];
+        if (matchedSeries) {
+          mediaData = matchedSeries;
+          mediaId = mediaData.media_id || mediaData.id;
+        }
+      } catch (err) {
+        this.appendLog(`⚠️ Error searching series catalog for "${cleanFolderTitle}": ${err.message}`);
+      }
+    } else if (mediaId) {
       try {
         const singleUrl = `${this.config.apiUrl}/v1/media/single/${mediaId}?dont_count_view=true`;
         let res = await fetch(singleUrl, {
@@ -654,12 +679,10 @@ export class SloFlixBridgeServer {
       }
     }
 
-    // Fallback: search by folder title
+    // Fallback: search by folder title for movies if not found
     if (!mediaData) {
-      const folderName = path.basename(absolutePath);
-      const cleanTitle = folderName.replace(/\s*\(\d{4}\).*$/, '').trim();
       try {
-        const searchUrl = `${this.config.apiUrl}/v1/media/search?keyword=${encodeURIComponent(cleanTitle)}`;
+        const searchUrl = `${this.config.apiUrl}/v1/media/search?keyword=${encodeURIComponent(cleanFolderTitle)}`;
         const res = await fetch(searchUrl, {
           headers: {
             ...this.defaultHeaders,
@@ -676,15 +699,19 @@ export class SloFlixBridgeServer {
     }
 
     if (!mediaData) {
-      return { success: false, message: 'Could not match directory with SloFlix catalog' };
+      return { success: false, message: `Could not match "${cleanFolderTitle}" with SloFlix catalog` };
     }
 
-    const title = mediaData.media_name || mediaData.title || path.basename(absolutePath);
+    // Always prefer cleanFolderTitle if mediaData.media_name is empty or is "Epizoda"
+    let title = mediaData.media_name || mediaData.title;
+    if (!title || title.toLowerCase().startsWith('epizoda')) {
+      title = cleanFolderTitle;
+    }
     let refreshedItems = [];
 
     // 3. Re-generate NFO
     try {
-      if (isShow || mediaData.media_type === 'series') {
+      if (isShow || mediaData.media_type === 2 || mediaData.type === 'series') {
         const nfoContent = generateShowNfo(mediaData, title);
         fs.writeFileSync(path.join(absolutePath, 'tvshow.nfo'), nfoContent, 'utf8');
         refreshedItems.push('tvshow.nfo');
@@ -769,6 +796,69 @@ export class SloFlixBridgeServer {
       success: true,
       message: `Metadata refreshed: ${refreshedItems.join(', ')}`,
       refreshedItems
+    };
+  }
+
+  async fixAllCorruptedShowsNfo() {
+    this.appendLog(`🔧 [Repair] Scanning all shows folders for corrupted <title>Epizoda</title> in tvshow.nfo...`);
+    
+    // Collect all show root directories
+    const roots = new Set();
+    if (process.env.SHOWS_DIR) roots.add(path.resolve(process.env.SHOWS_DIR));
+    if (Array.isArray(this.config.jobs)) {
+      for (const j of this.config.jobs) {
+        if (j.targetDir && (j.mediaTypeFilter === 'shows' || j.mediaTypeFilter === 'all' || !j.mediaTypeFilter)) {
+          roots.add(path.resolve(j.targetDir));
+        }
+      }
+    }
+
+    let fixedCount = 0;
+    let totalChecked = 0;
+
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      try {
+        const entries = fs.readdirSync(root, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const showDir = path.join(root, entry.name);
+          const nfoPath = path.join(showDir, 'tvshow.nfo');
+          
+          if (fs.existsSync(nfoPath)) {
+            totalChecked++;
+            try {
+              let nfoContent = fs.readFileSync(nfoPath, 'utf8');
+              if (nfoContent.includes('<title>Epizoda</title>') || nfoContent.includes('<title>Epizoda ') || nfoContent.includes('<title>Untitled</title>')) {
+                const folderName = entry.name;
+                const cleanTitle = folderName.replace(/\s*\(\d{4}\).*$/, '').trim();
+                
+                // Replace corrupted title with clean folder title
+                nfoContent = nfoContent.replace(/<title>[^<]*<\/title>/i, `<title>${cleanTitle}</title>`);
+                nfoContent = nfoContent.replace(/<originaltitle>[^<]*<\/originaltitle>/i, '');
+                
+                fs.writeFileSync(nfoPath, nfoContent, 'utf8');
+                fixedCount++;
+                this.appendLog(`  ✅ [Repair] Fixed "${nfoPath}" -> title restored to: "${cleanTitle}"`);
+              }
+            } catch (err) {
+              this.appendLog(`  ⚠️ [Repair] Error fixing ${nfoPath}: ${err.message}`);
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (fixedCount > 0 && this.config.jellyfinAutoRefresh && this.config.jellyfinUrl) {
+      this.triggerJellyfinRefresh().catch(() => {});
+    }
+
+    this.appendLog(`🎉 [Repair] Finished! Repaired ${fixedCount} corrupted tvshow.nfo files out of ${totalChecked} checked.`);
+    return {
+      success: true,
+      message: `Repaired ${fixedCount} corrupted tvshow.nfo files (out of ${totalChecked} checked).`,
+      fixedCount,
+      totalChecked
     };
   }
 
@@ -1102,6 +1192,23 @@ export class SloFlixBridgeServer {
               }
 
               const result = await this.refreshDirectoryMetadata(folderPath);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(result));
+            } catch (err) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: err.message }));
+            }
+          });
+          return;
+        }
+
+        // Batch Fix All Corrupted tvshow.nfo files in Shows folders
+        if (reqUrl.pathname === '/api/explorer/fix-shows-nfo' && req.method === 'POST') {
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', async () => {
+            try {
+              const result = await this.fixAllCorruptedShowsNfo();
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify(result));
             } catch (err) {
