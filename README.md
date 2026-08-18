@@ -112,12 +112,13 @@ Open your browser at **`http://YOUR_SERVER_IP:3849`**.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/JellySloFlix.git
+git clone https://github.com/dejkom/JellySloFlix.git
 cd JellySloFlix
 
 # Start the Web Manager & Bridge Server
 npm start
 ```
+
 
 Open **`http://localhost:3849`** in your browser.
 
