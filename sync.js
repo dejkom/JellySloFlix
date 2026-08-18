@@ -174,6 +174,208 @@ function extractYear(releaseDate, defaultYear = '') {
   return match ? match[1] : defaultYear;
 }
 
+/**
+ * Escape special XML characters for safe inclusion in .nfo files
+ */
+function escapeXml(unsafe) {
+  if (unsafe === null || unsafe === undefined) return '';
+  return String(unsafe)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
+ * Converts WebVTT formatted subtitle text into standard SubRip (.srt) format
+ */
+function vttToSrt(vttContent) {
+  if (!vttContent || typeof vttContent !== 'string') return '';
+
+  // Remove WEBVTT header, NOTE comments, and STYLE/REGION blocks
+  let clean = vttContent.replace(/^\uFEFF?WEBVTT[^\r\n]*(\r\n|\n|\r)/, '');
+  clean = clean.replace(/NOTE(\s+[\s\S]*?)?(\r\n\r\n|\n\n|\r\r|$)/g, '');
+  clean = clean.replace(/STYLE(\s+[\s\S]*?)?(\r\n\r\n|\n\n|\r\r|$)/g, '');
+  clean = clean.replace(/REGION(\s+[\s\S]*?)?(\r\n\r\n|\n\n|\r\r|$)/g, '');
+
+  // Normalize line endings to \n
+  clean = clean.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Split into cue blocks separated by 2 or more newlines
+  const rawBlocks = clean.split(/\n{2,}/);
+  const srtBlocks = [];
+  let counter = 1;
+
+  // Regex to match timestamp lines: (HH:)?MM:SS.mmm --> (HH:)?MM:SS.mmm
+  const timestampRegex = /(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(?:(\d{2,}):)?(\d{2}):(\d{2})\.(\d{3})/;
+
+  for (const block of rawBlocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+
+    const lines = trimmed.split('\n');
+    let timestampLineIndex = -1;
+    let match = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      match = lines[i].match(timestampRegex);
+      if (match) {
+        timestampLineIndex = i;
+        break;
+      }
+    }
+
+    if (timestampLineIndex === -1 || !match) {
+      continue;
+    }
+
+    // Format start and end timestamp to 00:00:00,000
+    const formatTime = (h, m, s, ms) => {
+      const hours = padZero(parseInt(h || '0', 10));
+      const minutes = padZero(parseInt(m, 10));
+      const seconds = padZero(parseInt(s, 10));
+      const milliseconds = String(ms).padEnd(3, '0').slice(0, 3);
+      return `${hours}:${minutes}:${seconds},${milliseconds}`;
+    };
+
+    const startTime = formatTime(match[1], match[2], match[3], match[4]);
+    const endTime = formatTime(match[5], match[6], match[7], match[8]);
+    const srtTimestamp = `${startTime} --> ${endTime}`;
+
+    // Subtitle text lines after the timestamp line
+    const textLines = lines.slice(timestampLineIndex + 1).map(line => {
+      // Remove VTT styling tags like <c.yellow>, </c>, <v Speaker>, <b>, <i>, etc.
+      return line.replace(/<\/?[^>]+(>|$)/g, '').trim();
+    }).filter(line => line.length > 0);
+
+    if (textLines.length > 0) {
+      srtBlocks.push(`${counter}\n${srtTimestamp}\n${textLines.join('\n')}`);
+      counter++;
+    }
+  }
+
+  return srtBlocks.join('\n\n') + (srtBlocks.length > 0 ? '\n' : '');
+}
+
+/**
+ * Generate Kodi/Jellyfin compatible movie.nfo XML content
+ */
+function generateMovieNfo(movie, resolvedTitle = '') {
+  const title = resolvedTitle || movie.media_name || movie.media_name_en || movie.title || '';
+  const originalTitle = movie.media_name_en || movie.media_name || '';
+  const plot = movie.media_description || movie.description || movie.media_synopsis || movie.synopsis || '';
+  const rawYear = movie.media_year || movie.year || movie.release_date;
+  const year = extractYear(rawYear, '');
+  const rating = parseFloat(movie.media_rating || (movie.media_rating?.rating ? movie.media_rating.rating / 10 : 0)) || 0;
+  
+  const genres = (movie.media_genres || []).map(g => typeof g === 'object' ? g.genre_name : g).filter(Boolean);
+
+  let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`;
+  xml += `<movie>\n`;
+  xml += `  <title>${escapeXml(title)}</title>\n`;
+  if (originalTitle && originalTitle !== title) {
+    xml += `  <originaltitle>${escapeXml(originalTitle)}</originaltitle>\n`;
+  }
+  if (plot) {
+    xml += `  <plot>${escapeXml(plot)}</plot>\n`;
+    xml += `  <outline>${escapeXml(plot.slice(0, 200))}</outline>\n`;
+  }
+  if (year) {
+    xml += `  <year>${escapeXml(year)}</year>\n`;
+  }
+  if (rating > 0) {
+    xml += `  <rating>${rating.toFixed(1)}</rating>\n`;
+  }
+  for (const g of genres) {
+    xml += `  <genre>${escapeXml(g)}</genre>\n`;
+  }
+  if (movie.media_duration || movie.duration) {
+    const runtime = parseInt(movie.media_duration || movie.duration, 10);
+    if (!isNaN(runtime)) xml += `  <runtime>${runtime}</runtime>\n`;
+  }
+  xml += `</movie>\n`;
+  return xml;
+}
+
+/**
+ * Generate Kodi/Jellyfin compatible tvshow.nfo XML content
+ */
+function generateShowNfo(show, resolvedTitle = '') {
+  const title = resolvedTitle || show.media_name || show.media_name_en || show.name || show.title || '';
+  const originalTitle = show.media_name_en || show.media_name || '';
+  const plot = show.media_description || show.description || show.media_synopsis || show.synopsis || '';
+  const rawYear = show.media_year || show.year || show.first_air_date;
+  const year = extractYear(rawYear, '');
+  const rating = parseFloat(show.media_rating || (show.media_rating?.rating ? show.media_rating.rating / 10 : 0)) || 0;
+  
+  const genres = (show.media_genres || []).map(g => typeof g === 'object' ? g.genre_name : g).filter(Boolean);
+
+  let xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`;
+  xml += `<tvshow>\n`;
+  xml += `  <title>${escapeXml(title)}</title>\n`;
+  if (originalTitle && originalTitle !== title) {
+    xml += `  <originaltitle>${escapeXml(originalTitle)}</originaltitle>\n`;
+  }
+  if (plot) {
+    xml += `  <plot>${escapeXml(plot)}</plot>\n`;
+    xml += `  <outline>${escapeXml(plot.slice(0, 200))}</outline>\n`;
+  }
+  if (year) {
+    xml += `  <year>${escapeXml(year)}</year>\n`;
+  }
+  if (rating > 0) {
+    xml += `  <rating>${rating.toFixed(1)}</rating>\n`;
+  }
+  for (const g of genres) {
+    xml += `  <genre>${escapeXml(g)}</genre>\n`;
+  }
+  xml += `</tvshow>\n`;
+  return xml;
+}
+
+/**
+ * Recursively find and convert all .vtt subtitles to .srt format in given directory
+ */
+function convertAllVttInDirectory(dirPath, force = false, onProgress = null) {
+  const stats = { found: 0, converted: 0, skipped: 0, errors: 0 };
+  if (!fs.existsSync(dirPath)) return stats;
+
+  function walk(currentDir) {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.vtt')) {
+        stats.found++;
+        const srtPath = fullPath.slice(0, -4) + '.srt';
+        if (fs.existsSync(srtPath) && !force) {
+          stats.skipped++;
+          continue;
+        }
+        try {
+          const vttContent = fs.readFileSync(fullPath, 'utf8');
+          const srtContent = vttToSrt(vttContent);
+          if (srtContent && srtContent.trim().length > 0) {
+            fs.writeFileSync(srtPath, srtContent, 'utf8');
+            stats.converted++;
+            if (onProgress) onProgress(`Converted: ${path.basename(fullPath)} -> ${path.basename(srtPath)}`);
+          } else {
+            stats.skipped++;
+          }
+        } catch (err) {
+          stats.errors++;
+          if (onProgress) onProgress(`Error converting ${entry.name}: ${err.message}`);
+        }
+      }
+    }
+  }
+
+  walk(dirPath);
+  return stats;
+}
+
 // ==========================================
 // API Client
 // ==========================================
@@ -471,6 +673,19 @@ class SyncEngine {
       });
       this.log(`  ➕ [Movie] [${res.dryRun ? 'DRY-RUN' : 'CREATED'}] ${folderName}/${fileName}`);
 
+      // Generate movie.nfo
+      if (!this.options.dryRun) {
+        try {
+          const nfoContent = generateMovieNfo(movie, title);
+          const nfoPath = path.join(targetDir, 'movie.nfo');
+          if (!fs.existsSync(nfoPath) || this.options.force) {
+            fs.writeFileSync(nfoPath, nfoContent, 'utf8');
+          }
+        } catch (err) {
+          this.log(`     ⚠️ [NFO] Napaka pri ustvarjanju movie.nfo: ${err.message}`);
+        }
+      }
+
       // Download Poster & Fanart if available
       const posterUrl = movie.media_thumbnail_url || movie.thumbnail;
       const fanartUrl = movie.media_banner_url || movie.banner;
@@ -481,17 +696,57 @@ class SyncEngine {
       if (mediaId && !this.options.dryRun) {
         try {
           const single = await this.client.fetchEndpoint(`/v1/media/single/${mediaId}?dont_count_view=true`);
-          const sources = single?.data?.media_sources || [];
+          const singleData = single?.data || single || {};
+          const sources = singleData.media_sources || singleData.sources || [];
+          
+          let subtitleFound = false;
+
+          // 1. Check sources for subtitle_location
           for (const src of sources) {
-            if (src.subtitle_location) {
-              const subUrl = `https://sloflix.com/subtitles/${src.subtitle_location}`;
-              const subTarget = path.join(targetDir, `${folderName}.sl.vtt`);
-              const downloaded = await this.downloadFile(subUrl, subTarget);
-              if (downloaded) this.log(`     💬 [Subtitle] Prejeti slovenski podnapisi (${folderName}.sl.vtt)`);
-              break;
+            const subLoc = src.subtitle_location || src.subtitles || src.subtitle;
+            if (subLoc) {
+              const subUrl = subLoc.startsWith('http') ? subLoc : `https://sloflix.com/subtitles/${subLoc}`;
+              const subTargetVtt = path.join(targetDir, `${folderName}.sl.vtt`);
+              const subTargetSrt = path.join(targetDir, `${folderName}.sl.srt`);
+              const downloaded = await this.downloadFile(subUrl, subTargetVtt);
+              if (downloaded) {
+                subtitleFound = true;
+                this.log(`     💬 [Subtitle] Prejeti slovenski podnapisi (${folderName}.sl.vtt)`);
+                try {
+                  const vttContent = fs.readFileSync(subTargetVtt, 'utf8');
+                  const srtContent = vttToSrt(vttContent);
+                  if (srtContent && srtContent.trim().length > 0) {
+                    fs.writeFileSync(subTargetSrt, srtContent, 'utf8');
+                    this.log(`     💬 [Subtitle] Samodejno pretvorjeno v SRT (${folderName}.sl.srt)`);
+                  }
+                } catch {}
+                break;
+              }
             }
           }
-        } catch {}
+
+          // 2. Direct singleData.subtitles or singleData.media_subtitles check
+          if (!subtitleFound && (singleData.subtitle_location || singleData.subtitles)) {
+            const subLoc = singleData.subtitle_location || singleData.subtitles;
+            const subUrl = typeof subLoc === 'string' && subLoc.startsWith('http') ? subLoc : `https://sloflix.com/subtitles/${subLoc}`;
+            const subTargetVtt = path.join(targetDir, `${folderName}.sl.vtt`);
+            const subTargetSrt = path.join(targetDir, `${folderName}.sl.srt`);
+            const downloaded = await this.downloadFile(subUrl, subTargetVtt);
+            if (downloaded) {
+              this.log(`     💬 [Subtitle] Prejeti slovenski podnapisi (${folderName}.sl.vtt)`);
+              try {
+                const vttContent = fs.readFileSync(subTargetVtt, 'utf8');
+                const srtContent = vttToSrt(vttContent);
+                if (srtContent && srtContent.trim().length > 0) {
+                  fs.writeFileSync(subTargetSrt, srtContent, 'utf8');
+                  this.log(`     💬 [Subtitle] Samodejno pretvorjeno v SRT (${folderName}.sl.srt)`);
+                }
+              } catch {}
+            }
+          }
+        } catch (subErr) {
+          this.log(`     ⚠️ [Subtitle] Napaka pri pridobivanju podnapisov za ${title}: ${subErr.message}`);
+        }
       }
     } else {
       this.stats.moviesSkipped++;
@@ -505,6 +760,20 @@ class SyncEngine {
     const year = extractYear(rawYear, '');
     const showFolderName = year ? `${title} (${year})` : title;
     const showDir = path.join(this.showsBaseDir, showFolderName);
+
+    // Generate tvshow.nfo
+    if (!this.options.dryRun) {
+      try {
+        if (!fs.existsSync(showDir)) fs.mkdirSync(showDir, { recursive: true });
+        const nfoContent = generateShowNfo(show, title);
+        const nfoPath = path.join(showDir, 'tvshow.nfo');
+        if (!fs.existsSync(nfoPath) || this.options.force) {
+          fs.writeFileSync(nfoPath, nfoContent, 'utf8');
+        }
+      } catch (err) {
+        this.log(`     ⚠️ [NFO] Napaka pri ustvarjanju tvshow.nfo: ${err.message}`);
+      }
+    }
 
     // Download Show Poster & Fanart
     const posterUrl = show.media_thumbnail_url || show.thumbnail;
@@ -549,16 +818,54 @@ class SyncEngine {
           if (epId && !this.options.dryRun) {
             try {
               const single = await this.client.fetchEndpoint(`/v1/media/single/${epId}?dont_count_view=true`);
-              const sources = single?.data?.media_sources || [];
+              const singleData = single?.data || single || {};
+              const sources = singleData.media_sources || singleData.sources || [];
+              let epSubFound = false;
+
               for (const src of sources) {
-                if (src.subtitle_location) {
-                  const subUrl = `https://sloflix.com/subtitles/${src.subtitle_location}`;
-                  const subTarget = path.join(targetDir, `${title} - ${sxxexx}.sl.vtt`);
-                  await this.downloadFile(subUrl, subTarget);
-                  break;
+                const subLoc = src.subtitle_location || src.subtitles || src.subtitle;
+                if (subLoc) {
+                  const subUrl = subLoc.startsWith('http') ? subLoc : `https://sloflix.com/subtitles/${subLoc}`;
+                  const subTargetVtt = path.join(targetDir, `${title} - ${sxxexx}.sl.vtt`);
+                  const subTargetSrt = path.join(targetDir, `${title} - ${sxxexx}.sl.srt`);
+                  const downloaded = await this.downloadFile(subUrl, subTargetVtt);
+                  if (downloaded) {
+                    epSubFound = true;
+                    this.log(`     💬 [Subtitle] Prejeti slovenski podnapisi (${title} - ${sxxexx}.sl.vtt)`);
+                    try {
+                      const vttContent = fs.readFileSync(subTargetVtt, 'utf8');
+                      const srtContent = vttToSrt(vttContent);
+                      if (srtContent && srtContent.trim().length > 0) {
+                        fs.writeFileSync(subTargetSrt, srtContent, 'utf8');
+                        this.log(`     💬 [Subtitle] Samodejno pretvorjeno v SRT (${title} - ${sxxexx}.sl.srt)`);
+                      }
+                    } catch {}
+                    break;
+                  }
                 }
               }
-            } catch {}
+
+              if (!epSubFound && (singleData.subtitle_location || singleData.subtitles)) {
+                const subLoc = singleData.subtitle_location || singleData.subtitles;
+                const subUrl = typeof subLoc === 'string' && subLoc.startsWith('http') ? subLoc : `https://sloflix.com/subtitles/${subLoc}`;
+                const subTargetVtt = path.join(targetDir, `${title} - ${sxxexx}.sl.vtt`);
+                const subTargetSrt = path.join(targetDir, `${title} - ${sxxexx}.sl.srt`);
+                const downloaded = await this.downloadFile(subUrl, subTargetVtt);
+                if (downloaded) {
+                  this.log(`     💬 [Subtitle] Prejeti slovenski podnapisi (${title} - ${sxxexx}.sl.vtt)`);
+                  try {
+                    const vttContent = fs.readFileSync(subTargetVtt, 'utf8');
+                    const srtContent = vttToSrt(vttContent);
+                    if (srtContent && srtContent.trim().length > 0) {
+                      fs.writeFileSync(subTargetSrt, srtContent, 'utf8');
+                      this.log(`     💬 [Subtitle] Samodejno pretvorjeno v SRT (${title} - ${sxxexx}.sl.srt)`);
+                    }
+                  } catch {}
+                }
+              }
+            } catch (subErr) {
+              this.log(`     ⚠️ [Subtitle] Napaka pri pridobivanju podnapisov za ${title} - ${sxxexx}: ${subErr.message}`);
+            }
           }
         } else {
           this.stats.episodesSkipped++;
@@ -801,7 +1108,19 @@ class SyncEngine {
 // ==========================================
 // Main Entrypoint
 // ==========================================
-export { sanitizeName, padZero, extractYear, SloFlixClient, SyncEngine, parseArgs };
+export {
+  sanitizeName,
+  padZero,
+  extractYear,
+  escapeXml,
+  vttToSrt,
+  generateMovieNfo,
+  generateShowNfo,
+  convertAllVttInDirectory,
+  SloFlixClient,
+  SyncEngine,
+  parseArgs
+};
 
 if (process.argv[1] && (path.resolve(process.argv[1]) === path.resolve(__filename) || process.argv[1].endsWith('sync.js'))) {
   const options = parseArgs();

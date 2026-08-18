@@ -27,11 +27,12 @@
     </header>
 
     <!-- Global Settings Section (Collapsible / Compact) -->
+    <!-- Global Settings Section (Collapsible / Compact) -->
     <section class="card settings-card">
       <div class="card-header">
         <div>
-          <h2>🔐 SloFlix Account & Bridge Settings</h2>
-          <p>Global credentials and stream proxy configuration for Jellyfin.</p>
+          <h2>🔐 SloFlix & Jellyfin Integrations</h2>
+          <p>SloFlix credentials, stream proxy configuration, and Jellyfin Auto-Library Refresh.</p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" id="toggle-settings-btn">👁️ Show / Hide Settings</button>
       </div>
@@ -55,9 +56,41 @@
             <input type="number" id="port" name="port" required value="3849" />
           </div>
         </div>
-        <div class="form-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-          <button type="submit" class="btn btn-primary btn-sm" id="save-settings-btn">💾 Save Credentials</button>
-          <button type="button" class="btn btn-outline btn-sm" id="test-auth-btn">🔐 Test Auth</button>
+
+        <!-- Jellyfin Auto-Refresh Integration Sub-section -->
+        <div style="margin-top: 1rem; padding: 1rem; background: rgba(0, 164, 228, 0.07); border: 1px solid rgba(0, 164, 228, 0.25); border-radius: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+            <div style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+              <span>🍿 Jellyfin Auto-Library Refresh</span>
+            </div>
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="checkbox" id="jellyfinAutoRefresh" name="jellyfinAutoRefresh" checked />
+              <span>Auto-refresh library after sync</span>
+            </label>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label for="jellyfinUrl">Jellyfin Server URL</label>
+              <input type="text" id="jellyfinUrl" name="jellyfinUrl" placeholder="http://jellyfin:8096 or http://192.168.1.100:8096" />
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label for="jellyfinApiKey">Jellyfin API Key (Dashboard &rarr; API Keys)</label>
+              <input type="text" id="jellyfinApiKey" name="jellyfinApiKey" placeholder="e.g. 48f93a1c..." />
+            </div>
+          </div>
+          <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
+            <button type="button" class="btn btn-outline btn-sm" id="test-jellyfin-btn">🔗 Test Jellyfin Connection / Refresh</button>
+          </div>
+        </div>
+
+        <div class="form-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: space-between; align-items: center;">
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="submit" class="btn btn-primary btn-sm" id="save-settings-btn">💾 Save All Settings</button>
+            <button type="button" class="btn btn-outline btn-sm" id="test-auth-btn">🔐 Test SloFlix Auth</button>
+          </div>
+          <div>
+            <button type="button" class="btn btn-warning btn-sm" id="mass-convert-subtitles-btn">🔄 Convert all existing VTT to SRT</button>
+          </div>
         </div>
       </form>
     </section>
@@ -74,6 +107,59 @@
 
       <div class="jobs-grid" id="jobs-grid-container">
         <!-- Dynamically rendered Job Cards -->
+      </div>
+    </section>
+
+    <!-- Graphical File Explorer Section -->
+    <section class="card explorer-card">
+      <div class="card-header">
+        <div>
+          <h2>📁 Graphical Media File Explorer</h2>
+          <p>Browse media folders, inspect and edit <code>movie.nfo</code> / <code>.strm</code> files, view posters, and manage subtitles.</p>
+        </div>
+        <div class="explorer-header-actions" style="display: flex; gap: 0.5rem; align-items: center;">
+          <select id="explorer-root-select" class="form-control" style="background:#111827; color:#f3f4f6; border:1px solid #374151; border-radius:6px; padding:0.4rem 0.6rem; font-size:0.85rem;">
+            <option value="">Select Folder Root...</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" id="explorer-refresh-btn">🔄 Refresh</button>
+        </div>
+      </div>
+
+      <div class="explorer-container">
+        <!-- Breadcrumbs Navigation -->
+        <div class="explorer-breadcrumbs" id="explorer-breadcrumbs">
+          <span class="breadcrumb-item active">📁 Media Root</span>
+        </div>
+
+        <!-- Quick Filter Box -->
+        <div class="explorer-toolbar" style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+          <div style="position: relative; width: 100%; max-width: 320px;">
+            <input type="text" id="explorer-search-input" placeholder="🔍 Search folder contents..." style="width: 100%; background: #111827; border: 1px solid #374151; border-radius: 6px; padding: 0.4rem 0.6rem 0.4rem 2rem; color: #f3f4f6; font-size: 0.85rem;" />
+            <span style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); opacity: 0.6;"></span>
+          </div>
+          <div id="explorer-item-count" style="font-size: 0.85rem; color: #9ca3af;">Loading items...</div>
+        </div>
+
+        <!-- File Table View -->
+        <div class="explorer-table-wrapper" style="overflow-x: auto; max-height: 420px; border: 1px solid #262c3b; border-radius: 8px; background: #0c101a;">
+          <table class="explorer-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+            <thead>
+              <tr style="background: #141a29; color: #94a3b8; border-bottom: 1px solid #262c3b;">
+                <th style="padding: 0.6rem 0.8rem;">Name</th>
+                <th style="padding: 0.6rem 0.8rem; width: 100px;">Type</th>
+                <th style="padding: 0.6rem 0.8rem; width: 110px;">Size / Items</th>
+                <th style="padding: 0.6rem 0.8rem; width: 160px;">Modified</th>
+                <th style="padding: 0.6rem 0.8rem; width: 140px; text-align: right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="explorer-table-body">
+              <!-- Dynamically populated items -->
+              <tr>
+                <td colspan="5" style="padding: 1.5rem; text-align: center; color: #64748b;">Select a folder or refresh to explore.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -244,6 +330,31 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="preview-cancel-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Viewer / Editor Modal -->
+    <div id="file-editor-modal" class="modal">
+      <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-header">
+          <div>
+            <h3 id="file-editor-title">📝 File Editor</h3>
+            <span class="subtitle" id="file-editor-path">/path/to/file</span>
+          </div>
+          <button type="button" class="modal-close-btn" id="file-editor-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="file-image-preview-container" style="display:none; text-align:center; padding:1rem; background:#0a0e17; border-radius:6px; margin-bottom:1rem;">
+            <img id="file-image-preview" src="" alt="Media Poster/Fanart" style="max-height: 350px; max-width: 100%; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" />
+          </div>
+          <div id="file-editor-textarea-container">
+            <textarea id="file-editor-content" style="width:100%; height:320px; background:#0f172a; color:#f8fafc; font-family:monospace; font-size:0.85rem; padding:0.75rem; border:1px solid #334155; border-radius:6px; resize:vertical; line-height:1.4;"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="file-editor-cancel-btn">Close</button>
+          <button type="button" class="btn btn-primary" id="file-editor-save-btn">💾 Save Changes</button>
         </div>
       </div>
     </div>
